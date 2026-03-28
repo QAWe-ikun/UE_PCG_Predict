@@ -37,13 +37,13 @@
 8. [向量空间与动态扩展](#8-向量空间与动态扩展)
    - [8.1 节点嵌入空间](#81-节点嵌入空间)
    - [8.2 在线适应](#82-在线适应)
-9. [UI/UX 设计](#9-uiux 设计)
+9. [UI 设计](#9-ui设计)
    - [9.1 预测浮层](#91-预测浮层)
    - [9.2 键盘导航](#92-键盘导航)
    - [9.3 意图输入](#93-意图输入)
    - [9.4 细节面板嵌入](#94-细节面板嵌入)
-   - [9.5 多连接 UI 修正](#95-多连接 ui 修正)
-10. [Debug 集成](#10-debug 集成)
+   - [9.5 多连接 UI 修正](#95-多连接ui修正)
+10. [Debug 集成](#10-debug集成)
     - [10.1 定位](#101-定位)
     - [10.2 操作](#102-操作)
     - [10.3 代码实现](#103-代码实现)
@@ -54,7 +54,7 @@
 12. [未来扩展](#12-未来扩展)
     - [12.1 意图驱动的参数匹配](#121-意图驱动的参数匹配)
     - [12.2 技术实现](#122-技术实现)
-    - [12.3 UI 展示](#123-ui 展示)
+    - [12.3 UI 展示](#123-ui展示)
     - [12.4 参数学习机制](#124-参数学习机制)
     - [12.5 与其他扩展的关系](#125-与其他扩展的关系)
 13. [总结](#13-总结)
@@ -390,7 +390,7 @@ class PCGBidirectionalPredictor(nn.Module):
 
 # 6. 双向预测机制
 
-## 6.1 反向预测（光标在输入接口）
+## 6.1 反向预测
 
 ```python
 def predict_reverse(target_data_type, context, intent_vector, k=10):
@@ -428,7 +428,7 @@ def predict_reverse(target_data_type, context, intent_vector, k=10):
     return sorted(candidates, key=lambda x: (x['cost'], -x['final_score']))[:k]
 ```
 
-## 6.2 正向预测（光标在输出接口）
+## 6.2 正向预测
 
 ```python
 def predict_forward(source_data_type, context, intent_vector, k=10):
@@ -714,9 +714,9 @@ def online_update(node_id, usage_records):
 
 ---
 
-# 9. UI/UX 设计
+# 9. UI设计
 
-## 9.1 预测浮层（Slate 原生）
+## 9.1 预测浮层
 
 ```
 ┌─────────────────────────────────────────┐
@@ -760,7 +760,7 @@ def online_update(node_id, usage_records):
 | `Esc` | 关闭浮层 |
 | `Tab` | 手动触发/刷新预测 |
 
-## 9.3 意图输入（内联）
+## 9.3 意图输入
 
 ```
 Shift+Tab 或右键"设置意图":
@@ -800,7 +800,7 @@ Shift+Tab 或右键"设置意图":
 └─────────────────────────────────────────┘
 ```
 
-## 9.5 多连接 UI 修正
+## 9.5 多连接UI修正
 
 ### 输入接口（已连接）
 
@@ -898,7 +898,7 @@ void SPCGPredictionPopup::BuildUI(const FPCGPredictionResult& Result)
 
 ---
 
-# 10. Debug 集成
+# 10. Debug集成
 
 ## 10.1 定位
 
@@ -1100,7 +1100,7 @@ class IntentDrivenParameterConfig:
         return False
 ```
 
-## 12.3 UI 展示
+## 12.3 UI展示
 
 ```
 预测浮层（含参数预览）:
