@@ -3,8 +3,8 @@
 	"Version": 1,
 	"VersionName": "1.0",
 	"FriendlyName": "PCG_Predict",
-	"Description": "Next PCG Node Predict",
-	"Category": "Other",
+	"Description": "PCG Graph 智能预测系统 - 双向预测、意图驱动",
+	"Category": "Editor",
 	"CreatedBy": "Tommy",
 	"CreatedByURL": "",
 	"DocsURL": "",
@@ -17,8 +17,8 @@
 	"Modules": [
 		{
 			"Name": "PCG_Predict",
-			"Type": "Runtime",
-			"LoadingPhase": "Default"
+			"Type": "Editor",
+			"LoadingPhase": "PostDefault"
 		}
 	]
 }
