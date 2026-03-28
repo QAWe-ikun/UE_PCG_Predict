@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Data
+python/data/raw/
+python/data/processed/
+
+# Models
+*.onnx
+*.bin
+*.pth
+
+# UE5
+plugin/PCGPredict/Binaries/
+plugin/PCGPredict/Intermediate/
+plugin/PCGPredict/Saved/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Claude
+.claude/

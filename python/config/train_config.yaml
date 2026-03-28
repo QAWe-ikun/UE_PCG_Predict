@@ -1,0 +1,30 @@
+model:
+  num_node_types: 50
+  gnn_hidden: 64
+  transformer_heads: 4
+  transformer_layers: 2
+  fusion_dim: 128
+  intent_dim: 64
+  intent_proj_dim: 32
+
+training:
+  optimizer: AdamW
+  lr: 0.001
+  weight_decay: 0.01
+  batch_size: 128
+  epochs: 100
+  early_stopping_patience: 10
+  warmup_steps: 100
+  scheduler: cosine_annealing
+
+loss:
+  cross_entropy_weight: 1.0
+  triplet_margin: 0.3
+  triplet_weight: 0.5
+
+data:
+  max_local_nodes: 7
+  node_feature_dim: 20
+  history_seq_len: 5
+  history_step_dim: 20
+  cursor_dim: 24
