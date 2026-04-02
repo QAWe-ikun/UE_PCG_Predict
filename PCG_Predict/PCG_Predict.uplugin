@@ -3,7 +3,7 @@
 	"Version": 1,
 	"VersionName": "1.0",
 	"FriendlyName": "PCG_Predict",
-	"Description": "PCG Graph 智能预测系统 - 双向预测、意图驱动",
+	"Description": "PCG Graph 智能预测系统 - 双向预测、意图驱动、Pin 悬停触发",
 	"Category": "Editor",
 	"CreatedBy": "Tommy",
 	"CreatedByURL": "",
@@ -14,11 +14,18 @@
 	"IsBetaVersion": true,
 	"IsExperimentalVersion": false,
 	"Installed": false,
+	"Plugins": [
+		"PCG",
+		"PCGEditor"
+	],
 	"Modules": [
 		{
 			"Name": "PCG_Predict",
 			"Type": "Editor",
-			"LoadingPhase": "PostDefault"
+			"LoadingPhase": "PostDefault",
+			"AdditionalDependencies": [
+				"PCGEditor"
+			]
 		}
 	]
 }

@@ -30,7 +30,8 @@ public class PCG_Predict : ModuleRules
 				"Engine",
 				"PCG",
 				"Projects",
-				"InputCore"
+				"InputCore",
+				"SlateCore"
 			}
 			);
 
@@ -44,7 +45,8 @@ public class PCG_Predict : ModuleRules
 				"LevelEditor",
 				"ApplicationCore",
 				"UMG",
-				"SlateReflector"
+				"SlateReflector",
+				"PCGEditor"
 			}
 			);
 
