@@ -28,3 +28,6 @@ plugin/PCGPredict/Saved/
 
 # Claude
 .claude/
+
+# Docs
+docs/

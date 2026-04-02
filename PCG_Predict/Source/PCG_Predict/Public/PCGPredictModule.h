@@ -5,6 +5,8 @@
 
 class FPCGToolbarExtension;
 class FPCGEditorExtension;
+class FPCGEditorCommands;
+class FPCGGraphIntegration;
 
 /**
  * PCG 预测模块
@@ -22,4 +24,10 @@ public:
 
     /** 编辑器扩展 */
     TSharedPtr<FPCGEditorExtension> EditorExtension;
+
+    /** 编辑器命令 */
+    TSharedPtr<FPCGEditorCommands> EditorCommands;
+
+    /** Graph 集成 */
+    TSharedPtr<FPCGGraphIntegration> GraphIntegration;
 };

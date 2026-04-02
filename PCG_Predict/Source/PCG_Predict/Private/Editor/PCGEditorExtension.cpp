@@ -16,17 +16,13 @@ void FPCGEditorExtension::Initialize() {
 }
 
 void FPCGEditorExtension::Shutdown() {
-  if (PredictionPopupWindow.IsValid()) {
-    FSlateApplication::Get().DestroyWindowImmediately(
-        PredictionPopupWindow.ToSharedRef());
-  }
-
-  if (IntentInputWindow.IsValid()) {
-    FSlateApplication::Get().DestroyWindowImmediately(
-        IntentInputWindow.ToSharedRef());
-  }
-
+  // 模块关闭时 Slate 可能已经销毁，不要手动销毁窗口
+  // UE 会自动清理所有窗口
+  PredictionPopupWindow.Reset();
+  IntentInputWindow.Reset();
   PredictorEngine.Reset();
+
+  UE_LOG(LogTemp, Log, TEXT("PCG Editor Extension Shutdown complete"));
 }
 
 void FPCGEditorExtension::RegisterCommands() {}
@@ -35,9 +31,12 @@ void FPCGEditorExtension::BindToPCGGraphEditor() {}
 
 void FPCGEditorExtension::ShowPredictionPopup(
     EPCGPredictPinDirection Direction) {
-  if (!PredictionPopupWindow.IsValid()) {
-    CreatePredictionPopupWindow();
+  // 每次都重新创建窗口
+  if (PredictionPopupWindow.IsValid()) {
+    PredictionPopupWindow->RequestDestroyWindow();
+    PredictionPopupWindow.Reset();
   }
+  CreatePredictionPopupWindow();
 
   TArray<FPCGCandidate> Candidates = PredictorEngine->Predict(Direction);
 
@@ -61,9 +60,12 @@ void FPCGEditorExtension::ShowPredictionPopup(
 }
 
 void FPCGEditorExtension::ShowIntentInput() {
-  if (!IntentInputWindow.IsValid()) {
-    CreateIntentInputWindow();
+  // 每次都重新创建窗口
+  if (IntentInputWindow.IsValid()) {
+    IntentInputWindow->RequestDestroyWindow();
+    IntentInputWindow.Reset();
   }
+  CreateIntentInputWindow();
 
   if (IntentInputWindow.IsValid()) {
     IntentInputWindow->ShowWindow();

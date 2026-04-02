@@ -40,29 +40,25 @@ void FPCGToolbarExtension::ExtendToolbar() {
   }
 
   // 创建扩展器
-  TSharedPtr<FExtender> ToolbarExtender = MakeShareable(new FExtender);
+  TSharedPtr<FExtender> ToolbarExtender = MakeShareable(new FExtender());
 
-  // 添加到工具栏
+  // 添加到工具栏 - 尝试放在 Play 按钮附近
   ToolbarExtender->AddToolBarExtension(
-      "GameSettings", // 钩子位置
-      EExtensionHook::After, nullptr,
-      FToolBarExtensionDelegate::CreateLambda([SharedThis = SharedThis(this)](
-                                                  FToolBarBuilder &Builder) {
+      "Play", EExtensionHook::After, nullptr,
+      FToolBarExtensionDelegate::CreateLambda([this](FToolBarBuilder &Builder) {
         Builder.AddSeparator();
 
-        // 预测按钮
+        // 预测按钮 - 使用 Lambda
         Builder.AddToolBarButton(
-            FUIAction(FExecuteAction::CreateSP(
-                SharedThis.Get(),
-                &FPCGToolbarExtension::OnPredictButtonClicked)),
-            NAME_None, LOCTEXT("PredictButtonLabel", "🔮 PCG"),
+            FUIAction(FExecuteAction::CreateLambda(
+                [this]() { OnPredictButtonClicked(); })),
+            NAME_None, LOCTEXT("PredictButtonLabel", "🔮 PCG Predict"),
             LOCTEXT("PredictButtonTooltip", "显示 PCG 节点预测"), FSlateIcon());
 
-        // 意图按钮
+        // 意图按钮 - 使用 Lambda
         Builder.AddToolBarButton(
-            FUIAction(FExecuteAction::CreateSP(
-                SharedThis.Get(),
-                &FPCGToolbarExtension::OnIntentButtonClicked)),
+            FUIAction(FExecuteAction::CreateLambda(
+                [this]() { OnIntentButtonClicked(); })),
             NAME_None, LOCTEXT("IntentButtonLabel", "🎯 Intent"),
             LOCTEXT("IntentButtonTooltip", "设置场景意图"), FSlateIcon());
       }));
@@ -71,7 +67,7 @@ void FPCGToolbarExtension::ExtendToolbar() {
   LevelEditorModule->GetToolBarExtensibilityManager()->AddExtender(
       ToolbarExtender);
 
-  UE_LOG(LogTemp, Log, TEXT("PCG Toolbar Extension registered"));
+  UE_LOG(LogTemp, Log, TEXT("PCG Toolbar Extension registered at 'Play'"));
 }
 
 void FPCGToolbarExtension::OnPredictButtonClicked() {

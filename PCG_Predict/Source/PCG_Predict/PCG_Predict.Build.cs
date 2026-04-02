@@ -29,7 +29,8 @@ public class PCG_Predict : ModuleRules
 				"CoreUObject",
 				"Engine",
 				"PCG",
-				"Projects"
+				"Projects",
+				"InputCore"
 			}
 			);
 
@@ -40,9 +41,11 @@ public class PCG_Predict : ModuleRules
 				"UnrealEd",
 				"Slate",
 				"SlateCore",
-				"InputCore",
 				"LevelEditor",
-				"ApplicationCore"
+				"ApplicationCore",
+				"UMG",
+				"SlateReflector",
+				"PCGEditor"
 			}
 			);
 
