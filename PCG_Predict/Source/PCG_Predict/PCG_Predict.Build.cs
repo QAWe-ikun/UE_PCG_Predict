@@ -44,8 +44,7 @@ public class PCG_Predict : ModuleRules
 				"LevelEditor",
 				"ApplicationCore",
 				"UMG",
-				"SlateReflector",
-				"PCGEditor"
+				"SlateReflector"
 			}
 			);
 

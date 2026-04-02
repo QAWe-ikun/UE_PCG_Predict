@@ -1,16 +1,15 @@
 #include "Editor/PCGGraphIntegration.h"
-#include "UI/SPCGPredictionPopup.h"
 #include "Core/PCGPredictorEngine.h"
-#include "Widgets/SWindow.h"
 #include "Framework/Application/SlateApplication.h"
-#include "PCGEditor.h"
+#include "UI/SPCGPredictionPopup.h"
+#include "Widgets/SWindow.h"
 
 void FPCGGraphIntegration::Initialize()
 {
     UE_LOG(LogTemp, Log, TEXT("PCG Graph Integration Initialized"));
-    
-    // 绑定到 PCG Graph 编辑器
-    BindToPCGGraphEditor();
+
+    // 当前版本不绑定到 PCG Graph 编辑器
+    // 使用工具栏按钮代替
 }
 
 void FPCGGraphIntegration::Shutdown()
@@ -28,18 +27,8 @@ void FPCGGraphIntegration::SetPredictorEngine(TSharedPtr<FPCGPredictorEngine> En
 
 void FPCGGraphIntegration::BindToPCGGraphEditor()
 {
-    // 获取 PCG 编辑器模块
-    IPCGEditorModule* PCGEditorModule = FModuleManager::GetModulePtr<IPCGEditorModule>("PCGEditor");
-    if (!PCGEditorModule)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("PCGEditor module not found"));
-        return;
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("PCGEditor module found, binding to graph editor"));
-    
-    // 注意：PCG Graph 编辑器内部结构需要进一步研究
-    // 当前使用简化方案：在工具栏添加"Pin 模式"切换按钮
+  // 暂不实现 - 需要访问 PCG Graph 编辑器内部
+  UE_LOG(LogTemp, Log, TEXT("PCG Graph Editor binding not implemented yet"));
 }
 
 void FPCGGraphIntegration::ShowPredictionAtPin(
