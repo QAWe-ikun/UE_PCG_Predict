@@ -9,8 +9,8 @@ class FPCGPredictorEngine;
 class SPCGPredictionPopup;
 
 /**
- * PCG Pin 悬停集成（无需修改引擎源码）
- * 使用 Frame Tick 轮询检测实现
+ * PCG Pin 悬停集成
+ * 使用 Slate 轮询检测实现（无需外部集成）
  */
 class FPCGPinHoverIntegration
     : public TSharedFromThis<FPCGPinHoverIntegration> {
@@ -31,8 +31,11 @@ public:
   /** 手动触发（从工具栏） */
   void TriggerPredictionFromToolbar();
 
-  /** 检测 Pin（公开给模块 Tick 调用） */
+  /** 检测鼠标下的 Pin（每帧调用） */
   void DetectPinUnderCursor();
+
+  /** 获取预测引擎（供外部访问） */
+  FPCGPredictorEngine *GetPredictorEngine() { return PredictorEngine.Get(); }
 
 private:
   /** 预测引擎 */
@@ -40,6 +43,15 @@ private:
 
   /** 预测浮层窗口 */
   TSharedPtr<SWindow> PredictionPopupWindow;
+
+  /** 连续检测计数（防抖） */
+  int32 ConsecutiveDetectionCount;
+
+  /** 上次检测到的 Widget 类型 */
+  FString LastDetectedWidgetType;
+
+  /** 上次悬停时间（防抖） */
+  double LastHoverTime;
 
   /** 创建预测浮层 */
   void CreatePredictionPopup();
@@ -50,10 +62,4 @@ private:
 
   /** 获取预测方向 */
   EPCGPredictPinDirection GetPredictDirection(const FString &Direction);
-
-  /** 上次检测到的 Widget 类型 */
-  FString LastDetectedWidgetType;
-
-  /** 连续检测计数（防抖） */
-  int32 ConsecutiveDetectionCount;
 };

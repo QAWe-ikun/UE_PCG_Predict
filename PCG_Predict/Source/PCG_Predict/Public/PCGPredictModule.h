@@ -1,3 +1,5 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
 #pragma once
 
 #include "CoreMinimal.h"
@@ -14,7 +16,7 @@ class FPCGPinHoverIntegration;
  *
  * 功能:
  * - 工具栏按钮触发预测
- * - Pin 悬停自动触发预测（轮询检测，无需修改引擎）
+ * - Pin 悬停自动触发预测（通过外部调用）
  * - 意图驱动推荐排序
  */
 class FPCGPredictModule : public IModuleInterface

@@ -1,4 +1,5 @@
 #include "PCGPredictModule.h"
+#include "Core/PCGPredictorEngine.h"
 #include "Editor/FPCGPinHoverIntegration.h"
 #include "Editor/PCGEditorCommands.h"
 #include "Editor/PCGEditorExtension.h"
@@ -20,42 +21,42 @@ void FPCGPredictModule::StartupModule()
   EditorCommands = MakeShareable(new FPCGEditorCommands());
   EditorCommands->Initialize();
 
-  // 初始化 Pin 悬停集成
+  // 初始化预测引擎
+  TSharedPtr<FPCGPredictorEngine> Engine =
+      MakeShareable(new FPCGPredictorEngine());
+  Engine->Initialize(TEXT("")); // 使用默认模型路径
+
+  // 初始化 Pin 悬停集成，并设置预测引擎
   PinHoverIntegration = MakeShareable(new FPCGPinHoverIntegration());
   PinHoverIntegration->Initialize();
+  PinHoverIntegration->SetPredictorEngine(Engine);
 
-  // 使用 FCoreDelegates 注册 Tick
-  FCoreDelegates::OnEndFrame.AddLambda([]() {
+  // 注册到 FCoreDelegates 的 Tick
+  FCoreDelegates::OnEndFrame.AddLambda([this]() {
     static int32 TickCounter = 0;
-    static const int32 TickInterval = 10;
+    static const int32 TickInterval =
+        10; // 每 10 帧检测一次（约 100ms @ 100fps）
 
     TickCounter++;
 
-    // 每 60 帧输出一次心跳日志（立即显示，不等待）
+    // 每 60 帧输出一次心跳日志
     if (TickCounter % 60 == 0) {
       UE_LOG(LogTemp, Log, TEXT("[Ticker] Heartbeat #%d"), TickCounter);
     }
 
     // 每 10 帧执行一次 Pin 检测
-    if (TickCounter % TickInterval != 0) {
-      return;
-    }
+    if (TickCounter % TickInterval == 0) {
+      UE_LOG(LogTemp, Verbose, TEXT("[Ticker] Running Pin detection..."));
 
-    UE_LOG(LogTemp, Verbose, TEXT("[Ticker] Running Pin detection..."));
-
-    // 调用 Pin 检测 - 使用模块管理器获取实例
-    if (FModuleManager::Get().IsModuleLoaded("PCG_Predict")) {
-      FPCGPredictModule *Module =
-          FModuleManager::GetModulePtr<FPCGPredictModule>("PCG_Predict");
-      if (Module && Module->PinHoverIntegration.IsValid()) {
-        Module->PinHoverIntegration->DetectPinUnderCursor();
+      if (PinHoverIntegration.IsValid()) {
+        PinHoverIntegration->DetectPinUnderCursor();
       }
     }
   });
 
   UE_LOG(LogTemp, Log, TEXT("✓ Registered to FCoreDelegates::OnEndFrame"));
   UE_LOG(LogTemp, Log, TEXT("✓ Pin hover detection enabled (100ms interval)"));
-  UE_LOG(LogTemp, Log, TEXT("✓ Look for [Ticker] Heartbeat logs"));
+  UE_LOG(LogTemp, Log, TEXT("✓ PredictorEngine initialized"));
 
   UE_LOG(LogTemp, Log, TEXT("PCGPredict module initialization complete"));
   UE_LOG(LogTemp, Log, TEXT("========================================"));

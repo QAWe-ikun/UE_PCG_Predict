@@ -1,15 +1,16 @@
 #pragma once
 
-#include "Blueprint/UserWidget.h"
 #include "Core/PCGPredictionTypes.h"
 #include "CoreMinimal.h"
+#include "Widgets/SBoxPanel.h"
 #include "Widgets/SCompoundWidget.h"
+#include "Widgets/Text/STextBlock.h"
 
 class FPCGPredictorEngine;
 
 /**
  * PCG 预测结果浮层 UI
- * 显示 Top-K 候选节点和 Debug 入口
+ * 显示选中的节点名称和随机推荐节点
  */
 class SPCGPredictionPopup : public SCompoundWidget {
 public:
@@ -34,6 +35,12 @@ public:
 
   /** 设置窗口引用 */
   void SetPopupWindow(TSharedPtr<SWindow> InWindow) { PopupWindow = InWindow; }
+
+  /** 设置选中的节点名称 */
+  void SetSelectedNodeName(const FString &InNodeName);
+
+  /** 重建候选列表 */
+  void RebuildCandidateList();
 
 protected:
   /** 构建候选列表 UI */
@@ -76,6 +83,15 @@ private:
   /** 当前连接的节点名称 */
   FString CurrentConnectedNode;
 
+  /** 当前选中的节点名称 */
+  FString SelectedNodeName;
+
   /** 弹窗窗口引用 */
   TSharedPtr<SWindow> PopupWindow;
+
+  /** 候选列表 VerticalBox */
+  TSharedPtr<SVerticalBox> CandidateListBox;
+
+  /** 节点名称 TextBlock 引用 */
+  TSharedPtr<STextBlock> SelectedNodeText;
 };

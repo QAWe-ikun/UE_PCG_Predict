@@ -17,29 +17,79 @@ void SPCGPredictionPopup::Construct(const FArguments &InArgs) {
       [SNew(SBorder)
            .BorderImage(FCoreStyle::Get().GetBrush("Menu.Background"))
            .Padding(10)
-               [SNew(SVerticalBox) +
+               [SNew(SVerticalBox)
+
+                // 标题行：显示选中的节点名称
+                +
                 SVerticalBox::Slot().AutoHeight()
                     [SNew(SHorizontalBox) +
                      SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
                          [SNew(STextBlock)
-                              .Text(LOCTEXT("PredictionTitle", "🔮 PCG 预测"))
+                              .Text(
+                                  LOCTEXT("PredictionTitle", "🔮 PCG Predict"))
                               .Font(
-                                  FCoreStyle::GetDefaultFontStyle("Bold", 12))]]
+                                  FCoreStyle::GetDefaultFontStyle("Bold", 12))]
+
+                     + SHorizontalBox::Slot().FillWidth(1.0f)[SNew(SSpacer)]
+
+                     // 显示选中的节点名称
+                     + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                           [SAssignNew(SelectedNodeText, STextBlock)
+                                .Text_Lambda([this]() {
+                                  return SelectedNodeName.IsEmpty()
+                                             ? FText::FromString(
+                                                   TEXT("No selection"))
+                                             : FText::FromString(
+                                                   SelectedNodeName);
+                                })
+                                .Font(FCoreStyle::GetDefaultFontStyle("Italic",
+                                                                      10))
+                                .ColorAndOpacity(FLinearColor::Gray)]]
 
                 + SVerticalBox::Slot().AutoHeight().Padding(
                       0, 5, 0, 10)[SNew(SSeparator)]
 
+                // 候选列表标题
+                +
+                SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 5)
+                    [SNew(STextBlock)
+                         .Text(LOCTEXT("CandidatesTitle", "Recommended Nodes"))
+                         .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+                         .ColorAndOpacity(FLinearColor::Gray)]
+
+                // 候选列表
                 + SVerticalBox::Slot().FillHeight(
-                      1.0f)[this->BuildCandidateList()]
+                      1.0f)[SAssignNew(CandidateListBox, SVerticalBox)]
 
                 + SVerticalBox::Slot().AutoHeight().Padding(0, 10, 0,
                                                             5)[SNew(SSeparator)]
 
                 + SVerticalBox::Slot().AutoHeight()[this->BuildDebugEntry()]]];
+
+  // 初始构建空列表
+  RebuildCandidateList();
+}
+
+void SPCGPredictionPopup::SetSelectedNodeName(const FString &InNodeName) {
+  SelectedNodeName = InNodeName;
+  UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Set node name: %s"),
+         *InNodeName);
+
+  // 更新节点名称显示
+  if (SelectedNodeText.IsValid()) {
+    SelectedNodeText->SetText(SelectedNodeName.IsEmpty()
+                                  ? FText::FromString(TEXT("No selection"))
+                                  : FText::FromString(SelectedNodeName));
+  }
 }
 
 void SPCGPredictionPopup::SetPredictorEngine(FPCGPredictorEngine *InEngine) {
   PredictorEngine = InEngine;
+}
+
+void SPCGPredictionPopup::SetCurrentIntent(const FString &InIntent) {
+  CurrentIntent = InIntent;
+  UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Set intent: %s"), *InIntent);
 }
 
 void SPCGPredictionPopup::UpdatePredictions(
@@ -48,50 +98,45 @@ void SPCGPredictionPopup::UpdatePredictions(
   Candidates = InCandidates;
   CurrentDirection = Direction;
   SelectedIndex = 0;
+
+  UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Updated with %d candidates"),
+         Candidates.Num());
+
+  // 重建候选列表
+  RebuildCandidateList();
 }
 
-void SPCGPredictionPopup::SetCurrentIntent(const FString &InIntent) {
-  CurrentIntent = InIntent;
-}
-
-void SPCGPredictionPopup::ClosePopup() {
-  if (PopupWindow.IsValid()) {
-    FSlateApplication::Get().DestroyWindowImmediately(
-        PopupWindow.ToSharedRef());
-  }
-}
-
-TSharedRef<SWidget> SPCGPredictionPopup::BuildCandidateList() {
-  TSharedRef<SVerticalBox> CandidateBox = SNew(SVerticalBox);
-
-  if (bHasCurrentConnection) {
-    CandidateBox->AddSlot().AutoHeight().Padding(
-        5)[SNew(SHorizontalBox) +
-           SHorizontalBox::Slot().AutoWidth()
-               [SNew(STextBlock)
-                    .Text(FText::Format(
-                        LOCTEXT("CurrentConnection", "当前连接：{0}"),
-                        FText::FromString(CurrentConnectedNode)))
-                    .ColorAndOpacity(FLinearColor::Gray)]];
-
-    CandidateBox->AddSlot().AutoHeight().Padding(0, 0, 0, 10)[SNew(SSeparator)];
+void SPCGPredictionPopup::RebuildCandidateList() {
+  if (!CandidateListBox.IsValid()) {
+    UE_LOG(LogTemp, Warning,
+           TEXT("[SPCGPredictionPopup] CandidateListBox is not valid"));
+    return;
   }
 
-  FString HeaderText = (CurrentDirection == EPCGPredictPinDirection::Input)
-                           ? TEXT("替代方案")
-                           : TEXT("推荐新连接");
+  // 清空现有内容
+  CandidateListBox->ClearChildren();
 
-  CandidateBox->AddSlot().AutoHeight().Padding(
-      0, 0, 0, 5)[SNew(STextBlock)
-                      .Text(FText::FromString(HeaderText))
-                      .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))];
+  UE_LOG(LogTemp, Log,
+         TEXT("[SPCGPredictionPopup] Building %d candidate items"),
+         Candidates.Num());
 
+  // 候选列表
   for (int32 i = 0; i < Candidates.Num() && i < 5; ++i) {
-    CandidateBox->AddSlot().AutoHeight().Padding(
+    CandidateListBox->AddSlot().AutoHeight().Padding(
         5, 2)[BuildCandidateWidget(Candidates[i], i)];
+
+    UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Added candidate %d: %s"),
+           i, *Candidates[i].NodeTypeName);
   }
 
-  return CandidateBox;
+  if (Candidates.Num() == 0) {
+    UE_LOG(LogTemp, Log,
+           TEXT("[SPCGPredictionPopup] No candidates to display"));
+    CandidateListBox->AddSlot().AutoHeight().Padding(
+        5, 2)[SNew(STextBlock)
+                  .Text(LOCTEXT("NoCandidates", "No predictions available"))
+                  .ColorAndOpacity(FLinearColor::Gray)];
+  }
 }
 
 TSharedRef<SWidget>
@@ -136,18 +181,45 @@ TSharedRef<SWidget> SPCGPredictionPopup::BuildDebugEntry() {
            SHorizontalBox::Slot().AutoWidth().VAlign(
                VAlign_Center)[SNew(STextBlock).Text(LOCTEXT("DebugIcon", "🔍"))]
 
-           + SHorizontalBox::Slot().AutoWidth().Padding(10, 0).VAlign(
-                 VAlign_Center)
-                 [SNew(SVerticalBox) +
-                  SVerticalBox::Slot().AutoHeight()
-                      [SNew(STextBlock)
-                           .Text(LOCTEXT("DebugTitle", "插入 Debug 节点"))
-                           .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))] +
-                  SVerticalBox::Slot().AutoHeight()
-                      [SNew(STextBlock)
-                           .Text(LOCTEXT("DebugDesc", "观察当前数据流状态"))
-                           .Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
-                           .ColorAndOpacity(FLinearColor::Gray)]]];
+           +
+           SHorizontalBox::Slot().AutoWidth().Padding(10, 0).VAlign(
+               VAlign_Center)
+               [SNew(SVerticalBox) +
+                SVerticalBox::Slot().AutoHeight()
+                    [SNew(STextBlock)
+                         .Text(LOCTEXT("DebugTitle", "Insert Debug Node"))
+                         .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))]
+
+                +
+                SVerticalBox::Slot().AutoHeight()
+                    [SNew(STextBlock)
+                         .Text(LOCTEXT("DebugDesc", "Observe data flow state"))
+                         .Font(FCoreStyle::GetDefaultFontStyle("Regular", 9))
+                         .ColorAndOpacity(FLinearColor::Gray)]]];
+}
+
+TSharedRef<SWidget> SPCGPredictionPopup::BuildCandidateList() {
+  TSharedRef<SVerticalBox> CandidateBox = SNew(SVerticalBox);
+
+  if (bHasCurrentConnection) {
+    CandidateBox->AddSlot().AutoHeight().Padding(
+        5)[SNew(SHorizontalBox) +
+           SHorizontalBox::Slot().AutoWidth()
+               [SNew(STextBlock)
+                    .Text(FText::Format(
+                        LOCTEXT("CurrentConnection", "Current: {0}"),
+                        FText::FromString(CurrentConnectedNode)))
+                    .ColorAndOpacity(FLinearColor::Gray)]];
+
+    CandidateBox->AddSlot().AutoHeight().Padding(0, 0, 0, 10)[SNew(SSeparator)];
+  }
+
+  for (int32 i = 0; i < Candidates.Num() && i < 5; ++i) {
+    CandidateBox->AddSlot().AutoHeight().Padding(
+        5, 2)[BuildCandidateWidget(Candidates[i], i)];
+  }
+
+  return CandidateBox;
 }
 
 TSharedRef<SWidget> SPCGPredictionPopup::BuildCurrentConnections() {
@@ -215,6 +287,13 @@ FReply SPCGPredictionPopup::OnKeyDown(const FGeometry &MyGeometry,
   }
 
   return SCompoundWidget::OnKeyDown(MyGeometry, InKeyEvent);
+}
+
+void SPCGPredictionPopup::ClosePopup() {
+  if (PopupWindow.IsValid()) {
+    FSlateApplication::Get().DestroyWindowImmediately(
+        PopupWindow.ToSharedRef());
+  }
 }
 
 #undef LOCTEXT_NAMESPACE

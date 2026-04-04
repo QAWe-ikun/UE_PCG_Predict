@@ -1,5 +1,6 @@
 #include "Core/PCGPredictorEngine.h"
 #include "Inference/PCGOnnxRuntime.h"
+#include "Math/RandomStream.h"
 #include "Misc/Paths.h"
 
 void FPCGPredictorEngine::Initialize(const FString& ModelPath)
@@ -58,15 +59,47 @@ void FPCGPredictorEngine::SetIntent(const FString& Text)
 TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates() const {
   TArray<FPCGCandidate> Samples;
 
-  // 示例候选
-  Samples.Add(
-      {0, TEXT("TransformPoints"), 0.94f, EPCGCandidateSource::CreateNew});
-  Samples.Add(
-      {1, TEXT("DensityFilter"), 0.88f, EPCGCandidateSource::CreateNew});
-  Samples.Add(
-      {2, TEXT("StaticMeshSpawner"), 0.82f, EPCGCandidateSource::CreateNew});
-  Samples.Add({3, TEXT("Difference"), 0.75f, EPCGCandidateSource::CreateNew});
-  Samples.Add({4, TEXT("Union"), 0.68f, EPCGCandidateSource::CreateNew});
+  // 调试用：随机生成一些 PCG 节点类型
+  TArray<FString> PCGNodeTypes = {TEXT("SurfaceSampler"),
+                                  TEXT("TransformPoints"),
+                                  TEXT("DensityFilter"),
+                                  TEXT("StaticMeshSpawner"),
+                                  TEXT("Difference"),
+                                  TEXT("Union"),
+                                  TEXT("Intersection"),
+                                  TEXT("GridSampler"),
+                                  TEXT("SplineSampler"),
+                                  TEXT("VolumeSampler"),
+                                  TEXT("RemoveBottom"),
+                                  TEXT("FindFloor"),
+                                  TEXT("OrientPointsToSurface"),
+                                  TEXT("ScalePointsByDistance"),
+                                  TEXT("ColorPointsByDistance")};
+
+  // 随机选择 5 个节点类型
+  TArray<FString> SelectedTypes;
+  for (int32 i = 0; i < 5 && i < PCGNodeTypes.Num(); i++) {
+    int32 RandomIndex = FMath::RandRange(0, PCGNodeTypes.Num() - 1);
+    FString SelectedType = PCGNodeTypes[RandomIndex];
+
+    // 避免重复
+    if (!SelectedTypes.Contains(SelectedType)) {
+      SelectedTypes.Add(SelectedType);
+
+      FPCGCandidate Candidate;
+      Candidate.NodeTypeId = i;
+      Candidate.NodeTypeName = SelectedType;
+      Candidate.Score = 0.95f - (i * 0.08f); // 递减的分数
+      Candidate.Source = EPCGCandidateSource::CreateNew;
+
+      Samples.Add(Candidate);
+    }
+  }
+
+  // 按分数排序
+  Samples.Sort([](const FPCGCandidate &A, const FPCGCandidate &B) {
+    return A.Score > B.Score;
+  });
 
   return Samples;
 }
