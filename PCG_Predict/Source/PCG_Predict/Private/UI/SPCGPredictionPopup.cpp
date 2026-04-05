@@ -226,10 +226,20 @@ TSharedRef<SWidget> SPCGPredictionPopup::BuildCurrentConnections() {
   return SNew(SVerticalBox);
 }
 
+void SPCGPredictionPopup::SetOnCandidateClicked(FOnCandidateClicked Callback) {
+  OnCandidateClickedCallback = MoveTemp(Callback);
+}
+
 FReply SPCGPredictionPopup::OnCandidateClicked(int32 Index) {
   if (Index >= 0 && Index < Candidates.Num()) {
     UE_LOG(LogTemp, Log, TEXT("Selected candidate %d: %s"), Index,
            *Candidates[Index].NodeTypeName);
+
+    // 调用回调函数
+    if (OnCandidateClickedCallback) {
+      OnCandidateClickedCallback(Candidates[Index], Index);
+    }
+
     ClosePopup();
   }
 

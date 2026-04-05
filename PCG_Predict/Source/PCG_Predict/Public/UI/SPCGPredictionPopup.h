@@ -42,6 +42,10 @@ public:
   /** 重建候选列表 */
   void RebuildCandidateList();
 
+  /** 设置候选点击回调 */
+  using FOnCandidateClicked = TFunction<void(const FPCGCandidate &, int32)>;
+  void SetOnCandidateClicked(FOnCandidateClicked Callback);
+
 protected:
   /** 构建候选列表 UI */
   TSharedRef<SWidget> BuildCandidateList();
@@ -94,4 +98,7 @@ private:
 
   /** 节点名称 TextBlock 引用 */
   TSharedPtr<STextBlock> SelectedNodeText;
+
+  /** 候选点击回调 */
+  FOnCandidateClicked OnCandidateClickedCallback;
 };

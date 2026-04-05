@@ -2,7 +2,9 @@
 
 #include "Core/PCGPredictionTypes.h"
 #include "CoreMinimal.h"
+#include "EdGraph/EdGraphPin.h"
 #include "Input/Reply.h"
+#include "SGraphPanel.h"
 #include "Widgets/SWidget.h"
 
 class FPCGPredictorEngine;
@@ -23,7 +25,28 @@ public:
 
   /** 显示预测 */
   void ShowPrediction(const FString &PinName, const FString &Direction,
-                      const FString &NodeName);
+                      const FString &NodeName,
+                      TSharedPtr<SGraphPanel> GraphPanel, UEdGraphPin *Pin);
+
+  /** 设置候选点击回调 */
+  using FOnCandidateClicked = TFunction<void(const FPCGCandidate &, int32)>;
+  void SetOnCandidateClicked(FOnCandidateClicked Callback);
+
+  /** 获取当前目标 Pin */
+  UEdGraphPin *GetCurrentTargetPin() const { return CurrentTargetPin; }
+
+  /** 获取当前节点名称 */
+  FString GetCurrentNodeName() const { return CurrentNodeName; }
+
+  /** 获取 Pin 方向 */
+  EEdGraphPinDirection GetCurrentPinDirection() const {
+    return CurrentPinDirection;
+  }
+
+  /** 获取当前 GraphPanel */
+  TSharedPtr<SGraphPanel> GetCurrentGraphPanel() const {
+    return CurrentGraphPanel;
+  }
 
   /** 隐藏预测 */
   void HidePrediction();
@@ -52,6 +75,24 @@ private:
 
   /** 上次悬停时间（防抖） */
   double LastHoverTime;
+
+  /** 当前目标 Pin */
+  UEdGraphPin *CurrentTargetPin;
+
+  /** 当前节点名称 */
+  FString CurrentNodeName;
+
+  /** 当前 Pin 方向 */
+  EEdGraphPinDirection CurrentPinDirection;
+
+  /** 当前 GraphPanel */
+  TSharedPtr<SGraphPanel> CurrentGraphPanel;
+
+  /** 当前鼠标位置 */
+  FVector2D CurrentMousePosition;
+
+  /** 候选点击回调 */
+  FOnCandidateClicked OnCandidateClickedCallback;
 
   /** 创建预测浮层 */
   void CreatePredictionPopup();

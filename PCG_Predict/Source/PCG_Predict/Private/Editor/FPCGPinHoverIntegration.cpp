@@ -1,9 +1,12 @@
 #include "Editor/FPCGPinHoverIntegration.h"
 #include "Core/PCGPredictorEngine.h"
+#include "EdGraph/EdGraph.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "HAL/PlatformTime.h"
+#include "PCGGraphActions.h"
 #include "SGraphNode.h"
+#include "SGraphPanel.h"
 #include "UI/SPCGPredictionPopup.h"
 #include "Widgets/SWindow.h"
 
@@ -15,6 +18,11 @@ void FPCGPinHoverIntegration::Initialize() {
 
   ConsecutiveDetectionCount = 0;
   LastHoverTime = 0.0;
+  CurrentTargetPin = nullptr;
+  CurrentNodeName = TEXT("");
+  CurrentPinDirection = EGPD_Input;
+  CurrentGraphPanel = nullptr;
+  CurrentMousePosition = FVector2D::ZeroVector;
 
   UE_LOG(LogTemp, Log, TEXT("✓ Initialization complete"));
 }
@@ -32,13 +40,17 @@ void FPCGPinHoverIntegration::SetPredictorEngine(
   PredictorEngine = Engine;
 }
 
+void FPCGPinHoverIntegration::SetOnCandidateClicked(
+    FOnCandidateClicked Callback) {
+  OnCandidateClickedCallback = MoveTemp(Callback);
+}
+
 // 从 SGraphNode 获取节点名称
 FString GetNodeNameFromSGraphNode(TSharedPtr<SWidget> Widget) {
   if (!Widget.IsValid()) {
     return TEXT("Node");
   }
 
-  // 尝试通过 StaticCast 转换为 SGraphNode
   TSharedPtr<SGraphNode> GraphNode = StaticCastSharedPtr<SGraphNode>(Widget);
   if (GraphNode.IsValid()) {
     FString NodeTitle = GraphNode->GetEditableNodeTitle();
@@ -49,6 +61,21 @@ FString GetNodeNameFromSGraphNode(TSharedPtr<SWidget> Widget) {
   }
 
   return TEXT("Node");
+}
+
+// 从 SGraphPin 获取 UEdGraphPin*
+UEdGraphPin *GetUEdGraphPinFromWidget(TSharedPtr<SWidget> Widget) {
+  if (!Widget.IsValid()) {
+    return nullptr;
+  }
+
+  // 尝试转换为 SGraphPin
+  TSharedPtr<SGraphPin> GraphPinWidget = StaticCastSharedPtr<SGraphPin>(Widget);
+  if (GraphPinWidget.IsValid()) {
+    return GraphPinWidget->GetPinObj();
+  }
+
+  return nullptr;
 }
 
 void FPCGPinHoverIntegration::DetectPinUnderCursor() {
@@ -96,6 +123,8 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
     HidePrediction();
     ConsecutiveDetectionCount = 0;
     LastDetectedWidgetType = TEXT("");
+    CurrentTargetPin = nullptr;
+    CurrentGraphPanel = nullptr;
     return;
   }
 
@@ -106,6 +135,8 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
     HidePrediction();
     ConsecutiveDetectionCount = 0;
     LastDetectedWidgetType = TEXT("");
+    CurrentTargetPin = nullptr;
+    CurrentGraphPanel = nullptr;
     return;
   }
 
@@ -115,6 +146,7 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
   // 从鼠标下的 Widget 开始向上查找 Pin 类型
   TSharedPtr<SWidget> CurrentWidget = WidgetUnderMouse;
   int32 Depth = 0;
+  TSharedPtr<SGraphPanel> FoundGraphPanel = nullptr;
 
   while (CurrentWidget.IsValid() && Depth < 20) {
     const FName CurrentWidgetType = CurrentWidget->GetType();
@@ -142,12 +174,12 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
       FString NodeName = TEXT("Node");
       TSharedPtr<SWidget> ParentWidget = CurrentWidget->GetParentWidget();
 
-      // 向上查找最多 15 层，寻找 GraphNode
+      // 向上查找最多 15 层，寻找 GraphNode 和 GraphPanel
       for (int32 i = 0; i < 15 && ParentWidget.IsValid(); i++) {
         FString ParentTypeName = ParentWidget->GetType().ToString();
         UE_LOG(LogTemp, Log, TEXT("  Parent[%d]: %s"), i, *ParentTypeName);
 
-        // 查找 GraphNode 或 PCGEditorGraphNode 类型
+        // 查找 GraphNode
         if (ParentTypeName.Contains(TEXT("GraphNode")) ||
             ParentTypeName.Contains(TEXT("PCGEditorGraphNode"))) {
           UE_LOG(LogTemp, Log,
@@ -162,7 +194,14 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
             UE_LOG(LogTemp, Log, TEXT("  Using fallback name: %s"), *NodeName);
           }
 
-          break;
+          // 从 GraphNode 获取 GraphPanel
+          TSharedPtr<SGraphNode> GraphNodeWidget =
+              StaticCastSharedPtr<SGraphNode>(ParentWidget);
+          if (GraphNodeWidget.IsValid()) {
+            FoundGraphPanel = GraphNodeWidget->GetOwnerPanel();
+            UE_LOG(LogTemp, Log, TEXT("  Found GraphPanel: %s"),
+                   FoundGraphPanel.IsValid() ? TEXT("Valid") : TEXT("Invalid"));
+          }
         }
 
         ParentWidget = ParentWidget->GetParentWidget();
@@ -200,9 +239,25 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
         PinName = AccessibleText;
       }
 
+      // 获取 UEdGraphPin*
+      UEdGraphPin *PinObj = GetUEdGraphPinFromWidget(CurrentWidget);
+
+      // 保存当前目标 Pin 信息
+      CurrentNodeName = NodeName;
+      CurrentPinDirection =
+          (Direction == TEXT("Input")) ? EGPD_Input : EGPD_Output;
+      CurrentTargetPin = PinObj;
+      CurrentGraphPanel = FoundGraphPanel;
+      CurrentMousePosition = MousePos;
+
       UE_LOG(LogTemp, Log, TEXT("Showing prediction for: %s.%s (%s)"),
              *NodeName, *PinName, *Direction);
-      ShowPrediction(PinName, Direction, NodeName);
+      UE_LOG(LogTemp, Log, TEXT("  GraphPanel: %s"),
+             FoundGraphPanel.IsValid() ? TEXT("Valid") : TEXT("Invalid"));
+      UE_LOG(LogTemp, Log, TEXT("  TargetPin: %s"),
+             PinObj ? TEXT("Valid") : TEXT("Invalid"));
+
+      ShowPrediction(PinName, Direction, NodeName, FoundGraphPanel, PinObj);
       return;
     }
 
@@ -218,11 +273,15 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
   HidePrediction();
   ConsecutiveDetectionCount = 0;
   LastDetectedWidgetType = TEXT("");
+  CurrentTargetPin = nullptr;
+  CurrentGraphPanel = nullptr;
 }
 
 void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
                                              const FString &Direction,
-                                             const FString &NodeName) {
+                                             const FString &NodeName,
+                                             TSharedPtr<SGraphPanel> GraphPanel,
+                                             UEdGraphPin *Pin) {
   UE_LOG(LogTemp, Log, TEXT("==========================================="));
   UE_LOG(LogTemp, Log, TEXT(">>> Show Prediction: %s.%s (%s)"), *NodeName,
          *PinName, *Direction);
@@ -262,6 +321,47 @@ void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
         Popup->SetPredictorEngine(PredictorEngine.Get());
         Popup->UpdatePredictions(Candidates, GetPredictDirection(Direction));
         Popup->SetSelectedNodeName(NodeName);
+
+        // 设置点击回调 - 现在包含完整的 GraphPanel 和 Pin 信息
+        Popup->SetOnCandidateClicked([GraphPanel, Pin,
+                                      PinDirection =
+                                          GetPredictDirection(Direction),
+                                      MousePos = CurrentMousePosition](
+                                         const FPCGCandidate &Candidate,
+                                         int32 Index) {
+          UE_LOG(LogTemp, Log, TEXT("[Callback] Candidate clicked: %s (%d)"),
+                 *Candidate.NodeTypeName, Index);
+
+          // 创建节点并连接
+          if (GraphPanel.IsValid() && Pin) {
+            UE_LOG(LogTemp, Log, TEXT("[Callback] Creating node: %s"),
+                   *Candidate.NodeTypeName);
+
+            FVector2D SpawnLocation =
+                FVector2D(MousePos.X + 50.0f, MousePos.Y + 50.0f);
+
+            // 转换 EPCGPredictPinDirection 为 EEdGraphPinDirection
+            EEdGraphPinDirection EdDirection =
+                (PinDirection == EPCGPredictPinDirection::Input) ? EGPD_Input
+                                                                 : EGPD_Output;
+
+            bool Success = FPCGGraphActions::CreateNodeAndConnect(
+                GraphPanel, Candidate.NodeTypeName, Pin, EdDirection,
+                SpawnLocation);
+
+            if (Success) {
+              UE_LOG(
+                  LogTemp, Log,
+                  TEXT("[Callback] Node created and connected successfully!"));
+            } else {
+              UE_LOG(LogTemp, Error, TEXT("[Callback] Failed to create node"));
+            }
+          } else {
+            UE_LOG(LogTemp, Warning,
+                   TEXT("[Callback] GraphPanel or Pin is null"));
+          }
+        });
+
         UE_LOG(LogTemp, Log, TEXT("  Set node name: %s"), *NodeName);
       } else {
         UE_LOG(LogTemp, Warning,

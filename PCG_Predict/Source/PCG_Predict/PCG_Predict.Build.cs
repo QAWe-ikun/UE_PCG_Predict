@@ -47,7 +47,9 @@ public class PCG_Predict : ModuleRules
 				"UMG",
 				"SlateReflector",
 				"PCGEditor",
-				"GraphEditor"
+				"GraphEditor",
+				"PCG",
+				"CoreUObject"
 			}
 			);
 

@@ -31,6 +31,9 @@ void FPCGPredictModule::StartupModule()
   PinHoverIntegration->Initialize();
   PinHoverIntegration->SetPredictorEngine(Engine);
 
+  // 注意：点击回调现在在 ShowPrediction 中设置，包含完整的 GraphPanel 和 Pin
+  // 信息
+
   // 注册到 FCoreDelegates 的 Tick
   FCoreDelegates::OnEndFrame.AddLambda([this]() {
     static int32 TickCounter = 0;
