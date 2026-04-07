@@ -25,7 +25,8 @@ public:
 
   /** 更新预测结果 */
   void UpdatePredictions(const TArray<FPCGCandidate> &InCandidates,
-                         EPCGPredictPinDirection Direction);
+                         EPCGPredictPinDirection Direction,
+                         const TArray<FString>& ConnectedNodes = TArray<FString>());
 
   /** 设置当前意图 */
   void SetCurrentIntent(const FString &InIntent);
@@ -84,8 +85,8 @@ private:
   /** 是否显示当前连接 */
   bool bHasCurrentConnection;
 
-  /** 当前连接的节点名称 */
-  FString CurrentConnectedNode;
+  /** 当前连接的节点名称列表 */
+  TArray<FString> ConnectedNodeNames;
 
   /** 当前选中的节点名称 */
   FString SelectedNodeName;
@@ -95,6 +96,9 @@ private:
 
   /** 候选列表 VerticalBox */
   TSharedPtr<SVerticalBox> CandidateListBox;
+
+  /** Debug 按钮容器 */
+  TSharedPtr<SBox> DebugButtonSlot;
 
   /** 节点名称 TextBlock 引用 */
   TSharedPtr<STextBlock> SelectedNodeText;

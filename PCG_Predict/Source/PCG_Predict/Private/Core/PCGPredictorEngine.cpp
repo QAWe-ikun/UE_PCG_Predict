@@ -5,6 +5,8 @@
 #include "Misc/FileHelper.h"
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
+#include "EdGraph/EdGraphPin.h"
+#include "EdGraph/EdGraphNode.h"
 
 void FPCGPredictorEngine::Initialize(const FString& ModelPath)
 {
@@ -38,13 +40,13 @@ void FPCGPredictorEngine::Initialize(const FString& ModelPath)
     UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ========================================"));
 }
 
-TArray<FPCGCandidate> FPCGPredictorEngine::Predict(EPCGPredictPinDirection Direction)
+TArray<FPCGCandidate> FPCGPredictorEngine::Predict(EPCGPredictPinDirection Direction, UEdGraphPin* ContextPin)
 {
     TArray<FPCGCandidate> Candidates;
 
     if (!OnnxRuntime.IsValid() || !OnnxRuntime->IsValid()) {
       // 返回示例数据用于测试
-      return GetSampleCandidates();
+      return GetSampleCandidates(Direction, ContextPin);
     }
 
     // TODO: 构建输入张量
@@ -52,7 +54,7 @@ TArray<FPCGCandidate> FPCGPredictorEngine::Predict(EPCGPredictPinDirection Direc
     // TODO: 解析输出并排序
 
     // 临时：返回示例数据
-    return GetSampleCandidates();
+    return GetSampleCandidates(Direction, ContextPin);
 }
 
 void FPCGPredictorEngine::SetIntent(const FString& Text)
@@ -63,7 +65,7 @@ void FPCGPredictorEngine::SetIntent(const FString& Text)
   // TODO: 解析意图并更新内部状态
 }
 
-TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates() const {
+TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates(EPCGPredictPinDirection Direction, UEdGraphPin* ContextPin) const {
   TArray<FPCGCandidate> Samples;
 
   if (NodeRegistry.Num() == 0) {
@@ -71,18 +73,68 @@ TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates() const {
     return Samples;
   }
 
+  // 提取已连接节点的类型信息（仅用于显示）
+  TArray<FString> ConnectedNodeTypes = ExtractConnectedNodeTypes(ContextPin);
+
+  if (ConnectedNodeTypes.Num() > 0) {
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Pin has %d connected nodes:"), ConnectedNodeTypes.Num());
+    for (const FString& NodeType : ConnectedNodeTypes) {
+      UE_LOG(LogTemp, Log, TEXT("  - %s"), *NodeType);
+    }
+  } else {
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Pin has no existing connections"));
+  }
+
+  // 根据方向过滤节点
+  TArray<int32> ValidIndices;
+  for (int32 i = 0; i < NodeRegistry.Num(); i++) {
+    const FPCGNodeRegistryEntry& Entry = NodeRegistry[i];
+
+    // 排除 Debug 节点（id=130）
+    if (Entry.Id == 130) {
+      continue;
+    }
+
+    // 排除名为 "None" 的节点
+    if (Entry.Name == TEXT("None")) {
+      continue;
+    }
+
+    // 输出pin预测 → 需要有输入pin的节点
+    // 输入pin预测 → 需要有输出pin的节点
+    if (Direction == EPCGPredictPinDirection::Output) {
+      if (Entry.InputTypes.Num() > 0) {
+        ValidIndices.Add(i);
+      }
+    } else {
+      if (Entry.OutputTypes.Num() > 0) {
+        ValidIndices.Add(i);
+      }
+    }
+  }
+
+  if (ValidIndices.Num() == 0) {
+    UE_LOG(LogTemp, Warning, TEXT("No valid nodes found for direction: %s"),
+           Direction == EPCGPredictPinDirection::Output ? TEXT("Output") : TEXT("Input"));
+    return Samples;
+  }
+
+  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Found %d valid nodes for direction: %s"),
+         ValidIndices.Num(),
+         Direction == EPCGPredictPinDirection::Output ? TEXT("Output") : TEXT("Input"));
+
   // 随机选择 5 个节点
   TArray<int32> SelectedIndices;
-  int32 NumToSelect = FMath::Min(5, NodeRegistry.Num());
+  int32 NumToSelect = FMath::Min(5, ValidIndices.Num());
 
   while (SelectedIndices.Num() < NumToSelect) {
-    int32 RandomIndex = FMath::RandRange(0, NodeRegistry.Num() - 1);
+    int32 RandomValidIndex = FMath::RandRange(0, ValidIndices.Num() - 1);
+    int32 ActualIndex = ValidIndices[RandomValidIndex];
 
-    // 避免重复
-    if (!SelectedIndices.Contains(RandomIndex)) {
-      SelectedIndices.Add(RandomIndex);
+    if (!SelectedIndices.Contains(ActualIndex)) {
+      SelectedIndices.Add(ActualIndex);
 
-      const FPCGNodeRegistryEntry& Entry = NodeRegistry[RandomIndex];
+      const FPCGNodeRegistryEntry& Entry = NodeRegistry[ActualIndex];
 
       FPCGCandidate Candidate;
       Candidate.NodeTypeId = Entry.Id;
@@ -100,6 +152,28 @@ TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates() const {
   });
 
   return Samples;
+}
+
+TArray<FString> FPCGPredictorEngine::ExtractConnectedNodeTypes(UEdGraphPin* Pin) const {
+  TArray<FString> NodeTypes;
+
+  if (!Pin) {
+    return NodeTypes;
+  }
+
+  // 遍历所有连接
+  for (UEdGraphPin* LinkedPin : Pin->LinkedTo) {
+    if (LinkedPin && LinkedPin->GetOwningNode()) {
+      UEdGraphNode* LinkedNode = LinkedPin->GetOwningNode();
+      FString NodeTitle = LinkedNode->GetNodeTitle(ENodeTitleType::ListView).ToString();
+
+      if (!NodeTitle.IsEmpty() && !NodeTypes.Contains(NodeTitle)) {
+        NodeTypes.Add(NodeTitle);
+      }
+    }
+  }
+
+  return NodeTypes;
 }
 
 void FPCGPredictorEngine::LoadNodeRegistry() {

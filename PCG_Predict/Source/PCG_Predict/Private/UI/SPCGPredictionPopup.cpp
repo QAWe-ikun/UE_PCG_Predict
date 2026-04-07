@@ -12,6 +12,7 @@
 void SPCGPredictionPopup::Construct(const FArguments &InArgs) {
   SelectedIndex = 0;
   bHasCurrentConnection = false;
+  CurrentDirection = EPCGPredictPinDirection::Input; // 默认为输入方向，隐藏Debug按钮
 
   ChildSlot
       [SNew(SBorder)
@@ -49,14 +50,6 @@ void SPCGPredictionPopup::Construct(const FArguments &InArgs) {
                 + SVerticalBox::Slot().AutoHeight().Padding(
                       0, 5, 0, 10)[SNew(SSeparator)]
 
-                // 候选列表标题
-                +
-                SVerticalBox::Slot().AutoHeight().Padding(0, 0, 0, 5)
-                    [SNew(STextBlock)
-                         .Text(LOCTEXT("CandidatesTitle", "Recommended Nodes"))
-                         .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
-                         .ColorAndOpacity(FLinearColor::Gray)]
-
                 // 候选列表
                 + SVerticalBox::Slot().FillHeight(
                       1.0f)[SAssignNew(CandidateListBox, SVerticalBox)]
@@ -64,7 +57,11 @@ void SPCGPredictionPopup::Construct(const FArguments &InArgs) {
                 + SVerticalBox::Slot().AutoHeight().Padding(0, 10, 0,
                                                             5)[SNew(SSeparator)]
 
-                + SVerticalBox::Slot().AutoHeight()[this->BuildDebugEntry()]]];
+                // Debug 按钮（仅输出pin时显示）
+                + SVerticalBox::Slot().AutoHeight()
+                    [SAssignNew(DebugButtonSlot, SBox)
+                         .Visibility(EVisibility::Collapsed) // 初始隐藏
+                         [this->BuildDebugEntry()]]]];
 
   // 初始构建空列表
   RebuildCandidateList();
@@ -94,13 +91,30 @@ void SPCGPredictionPopup::SetCurrentIntent(const FString &InIntent) {
 
 void SPCGPredictionPopup::UpdatePredictions(
     const TArray<FPCGCandidate> &InCandidates,
-    EPCGPredictPinDirection Direction) {
+    EPCGPredictPinDirection Direction,
+    const TArray<FString>& ConnectedNodes) {
   Candidates = InCandidates;
   CurrentDirection = Direction;
   SelectedIndex = 0;
+  ConnectedNodeNames = ConnectedNodes;
+  bHasCurrentConnection = (ConnectedNodes.Num() > 0);
 
-  UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Updated with %d candidates"),
-         Candidates.Num());
+  UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Updated with %d candidates, %d connected nodes"),
+         Candidates.Num(), ConnectedNodes.Num());
+  UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Direction: %s"),
+         (CurrentDirection == EPCGPredictPinDirection::Output) ? TEXT("Output") : TEXT("Input"));
+
+  // 更新Debug按钮可见性
+  if (DebugButtonSlot.IsValid()) {
+    EVisibility NewVisibility = (CurrentDirection == EPCGPredictPinDirection::Output)
+                                    ? EVisibility::Visible
+                                    : EVisibility::Collapsed;
+    DebugButtonSlot->SetVisibility(NewVisibility);
+    UE_LOG(LogTemp, Log, TEXT("[SPCGPredictionPopup] Debug button visibility set to: %s"),
+           (NewVisibility == EVisibility::Visible) ? TEXT("Visible") : TEXT("Collapsed"));
+  } else {
+    UE_LOG(LogTemp, Warning, TEXT("[SPCGPredictionPopup] DebugButtonSlot is not valid!"));
+  }
 
   // 重建候选列表
   RebuildCandidateList();
@@ -119,6 +133,42 @@ void SPCGPredictionPopup::RebuildCandidateList() {
   UE_LOG(LogTemp, Log,
          TEXT("[SPCGPredictionPopup] Building %d candidate items"),
          Candidates.Num());
+
+  // 如果有已连接的节点，先显示它们
+  if (bHasCurrentConnection && ConnectedNodeNames.Num() > 0) {
+    CandidateListBox->AddSlot().AutoHeight().Padding(0, 0, 0, 5)
+        [SNew(STextBlock)
+             .Text(LOCTEXT("ConnectedNodesTitle", "Connected Nodes"))
+             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+             .ColorAndOpacity(FLinearColor(0.3f, 0.7f, 1.0f))];
+
+    for (const FString& NodeName : ConnectedNodeNames) {
+      CandidateListBox->AddSlot().AutoHeight().Padding(5, 2)
+          [SNew(SBorder)
+               .BorderImage(FCoreStyle::Get().GetBrush("ToolPanel.GroupBorder"))
+               .Padding(8, 4)
+               [SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+                    [SNew(STextBlock)
+                         .Text(FText::FromString(TEXT("🔗 ")))
+                         .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))]
+                + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+                    [SNew(STextBlock)
+                         .Text(FText::FromString(NodeName))
+                         .Font(FCoreStyle::GetDefaultFontStyle("Regular", 10))
+                         .ColorAndOpacity(FLinearColor(0.7f, 0.9f, 1.0f))]]];
+    }
+
+    // 添加分隔线
+    CandidateListBox->AddSlot().AutoHeight().Padding(0, 8, 0, 8)
+        [SNew(SSeparator)];
+
+    CandidateListBox->AddSlot().AutoHeight().Padding(0, 0, 0, 5)
+        [SNew(STextBlock)
+             .Text(LOCTEXT("RecommendedTitle", "Recommended Nodes"))
+             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+             .ColorAndOpacity(FLinearColor::Gray)];
+  }
 
   // 候选列表
   for (int32 i = 0; i < Candidates.Num() && i < 5; ++i) {
@@ -201,17 +251,21 @@ TSharedRef<SWidget> SPCGPredictionPopup::BuildDebugEntry() {
 TSharedRef<SWidget> SPCGPredictionPopup::BuildCandidateList() {
   TSharedRef<SVerticalBox> CandidateBox = SNew(SVerticalBox);
 
-  if (bHasCurrentConnection) {
-    CandidateBox->AddSlot().AutoHeight().Padding(
-        5)[SNew(SHorizontalBox) +
-           SHorizontalBox::Slot().AutoWidth()
-               [SNew(STextBlock)
-                    .Text(FText::Format(
-                        LOCTEXT("CurrentConnection", "Current: {0}"),
-                        FText::FromString(CurrentConnectedNode)))
-                    .ColorAndOpacity(FLinearColor::Gray)]];
+  if (bHasCurrentConnection && ConnectedNodeNames.Num() > 0) {
+    CandidateBox->AddSlot().AutoHeight().Padding(5, 0, 5, 5)
+        [SNew(STextBlock)
+             .Text(LOCTEXT("ConnectedNodesTitle", "Connected Nodes"))
+             .Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+             .ColorAndOpacity(FLinearColor(0.3f, 0.7f, 1.0f))];
 
-    CandidateBox->AddSlot().AutoHeight().Padding(0, 0, 0, 10)[SNew(SSeparator)];
+    for (const FString& NodeName : ConnectedNodeNames) {
+      CandidateBox->AddSlot().AutoHeight().Padding(5, 2)
+          [SNew(STextBlock)
+               .Text(FText::Format(LOCTEXT("ConnectedNode", "🔗 {0}"), FText::FromString(NodeName)))
+               .ColorAndOpacity(FLinearColor(0.7f, 0.9f, 1.0f))];
+    }
+
+    CandidateBox->AddSlot().AutoHeight().Padding(0, 5, 0, 10)[SNew(SSeparator)];
   }
 
   for (int32 i = 0; i < Candidates.Num() && i < 5; ++i) {
@@ -248,8 +302,19 @@ FReply SPCGPredictionPopup::OnCandidateClicked(int32 Index) {
 
 FReply SPCGPredictionPopup::OnDebugInsertClicked() {
   UE_LOG(LogTemp, Log, TEXT("Insert Debug node clicked"));
-  ClosePopup();
 
+  // 创建 Debug 候选并调用回调
+  if (OnCandidateClickedCallback) {
+    FPCGCandidate DebugCandidate;
+    DebugCandidate.NodeTypeId = 130;
+    DebugCandidate.NodeTypeName = TEXT("Debug");
+    DebugCandidate.Score = 1.0f;
+    DebugCandidate.Source = EPCGCandidateSource::CreateNew;
+
+    OnCandidateClickedCallback(DebugCandidate, -1); // -1 表示特殊的Debug节点
+  }
+
+  ClosePopup();
   return FReply::Handled();
 }
 

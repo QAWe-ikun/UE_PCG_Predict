@@ -212,7 +212,7 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
       LastDetectedWidgetType = CurrentTypeName;
 
       FString PinName = TEXT("Pin");
-      FString Direction = TEXT("Output");
+      FString Direction = TEXT("Output"); // 默认值
 
       FString AccessibleText = CurrentWidget->GetAccessibleText().ToString();
       if (!AccessibleText.IsEmpty()) {
@@ -221,6 +221,12 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
 
       // 获取 UEdGraphPin*
       UEdGraphPin *PinObj = GetUEdGraphPinFromWidget(CurrentWidget);
+
+      // 从 Pin 对象获取真实方向
+      if (PinObj) {
+        Direction = (PinObj->Direction == EGPD_Input) ? TEXT("Input") : TEXT("Output");
+        UE_LOG(LogTemp, Log, TEXT("  Pin direction from object: %s"), *Direction);
+      }
 
       // 保存当前目标 Pin 信息
       CurrentNodeName = NodeName;
@@ -257,11 +263,26 @@ void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
 
   // 先获取预测数据
   TArray<FPCGCandidate> Candidates;
+  TArray<FString> ConnectedNodes;
+
   if (PredictorEngine.IsValid()) {
     EPCGPredictPinDirection PredictDirection = GetPredictDirection(Direction);
-    Candidates = PredictorEngine->Predict(PredictDirection);
-    UE_LOG(LogTemp, Log, TEXT("  Got %d candidates from predictor"),
-           Candidates.Num());
+    Candidates = PredictorEngine->Predict(PredictDirection, Pin);
+
+    // 获取已连接的节点信息
+    if (Pin) {
+      for (UEdGraphPin* LinkedPin : Pin->LinkedTo) {
+        if (LinkedPin && LinkedPin->GetOwningNode()) {
+          FString NodeTitle = LinkedPin->GetOwningNode()->GetNodeTitle(ENodeTitleType::ListView).ToString();
+          if (!NodeTitle.IsEmpty()) {
+            ConnectedNodes.Add(NodeTitle);
+          }
+        }
+      }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("  Got %d candidates from predictor, %d connected nodes"),
+           Candidates.Num(), ConnectedNodes.Num());
 
     // 打印候选列表
     for (int32 i = 0; i < Candidates.Num(); i++) {
@@ -273,10 +294,16 @@ void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
   }
 
   // 创建或更新窗口
-  if (!PredictionPopupWindow.IsValid()) {
-    UE_LOG(LogTemp, Log, TEXT("  Creating new popup window..."));
-    CreatePredictionPopup();
+  // 强制销毁旧窗口，避免状态残留
+  if (PredictionPopupWindow.IsValid()) {
+    UE_LOG(LogTemp, Log, TEXT("  Destroying existing popup window..."));
+    FSlateApplication::Get().DestroyWindowImmediately(
+        PredictionPopupWindow.ToSharedRef());
+    PredictionPopupWindow.Reset();
   }
+
+  UE_LOG(LogTemp, Log, TEXT("  Creating new popup window..."));
+  CreatePredictionPopup();
 
   // 更新窗口内容
   if (PredictionPopupWindow.IsValid()) {
@@ -288,14 +315,13 @@ void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
       if (Popup.IsValid()) {
         UE_LOG(LogTemp, Log, TEXT("  Updating popup content..."));
         Popup->SetPredictorEngine(PredictorEngine.Get());
-        Popup->UpdatePredictions(Candidates, GetPredictDirection(Direction));
+        Popup->UpdatePredictions(Candidates, GetPredictDirection(Direction), ConnectedNodes);
         Popup->SetSelectedNodeName(NodeName);
 
         // 设置点击回调 - 现在包含完整的 GraphPanel 和 Pin 信息
         Popup->SetOnCandidateClicked([GraphPanel, Pin,
                                       PinDirection =
-                                          GetPredictDirection(Direction),
-                                      MousePos = CurrentMousePosition](
+                                          GetPredictDirection(Direction)](
                                          const FPCGCandidate &Candidate,
                                          int32 Index) {
           UE_LOG(LogTemp, Log, TEXT("[Callback] Candidate clicked: %s (%d)"),
@@ -306,8 +332,29 @@ void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
             UE_LOG(LogTemp, Log, TEXT("[Callback] Creating node: %s"),
                    *Candidate.NodeTypeName);
 
-            FVector2D SpawnLocation =
-                FVector2D(MousePos.X + 50.0f, MousePos.Y + 50.0f);
+            // 计算新节点位置：基于源节点位置
+            FVector2D SpawnLocation = FVector2D::ZeroVector;
+
+            if (Pin->GetOwningNode()) {
+              UEdGraphNode* OwningNode = Pin->GetOwningNode();
+              FVector2D NodePos(OwningNode->NodePosX, OwningNode->NodePosY);
+
+              // 根据pin方向决定偏移
+              // 输出pin -> 新节点在右侧
+              // 输入pin -> 新节点在左侧
+              if (PinDirection == EPCGPredictPinDirection::Output) {
+                SpawnLocation = FVector2D(NodePos.X + 400.0f, NodePos.Y);
+              } else {
+                SpawnLocation = FVector2D(NodePos.X - 400.0f, NodePos.Y);
+              }
+
+              UE_LOG(LogTemp, Log, TEXT("[Callback] Source node at (%.1f, %.1f), new node at (%.1f, %.1f)"),
+                     NodePos.X, NodePos.Y, SpawnLocation.X, SpawnLocation.Y);
+            } else {
+              // 后备方案：使用鼠标位置
+              SpawnLocation = FVector2D(100.0f, 100.0f);
+              UE_LOG(LogTemp, Warning, TEXT("[Callback] No owning node, using fallback position"));
+            }
 
             // 转换 EPCGPredictPinDirection 为 EEdGraphPinDirection
             EEdGraphPinDirection EdDirection =

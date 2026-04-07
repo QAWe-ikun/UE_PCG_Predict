@@ -26,7 +26,7 @@ class FPCGPredictorEngine
 {
 public:
     void Initialize(const FString& ModelPath);
-    TArray<FPCGCandidate> Predict(EPCGPredictPinDirection Direction);
+    TArray<FPCGCandidate> Predict(EPCGPredictPinDirection Direction, class UEdGraphPin* ContextPin = nullptr);
     void SetIntent(const FString& Text);
 
   private:
@@ -40,7 +40,10 @@ public:
     TArray<FPCGNodeRegistryEntry> NodeRegistry;
 
     /** 获取示例候选（临时用） */
-    TArray<FPCGCandidate> GetSampleCandidates() const;
+    TArray<FPCGCandidate> GetSampleCandidates(EPCGPredictPinDirection Direction, class UEdGraphPin* ContextPin) const;
+
+    /** 从已连接的节点提取上下文信息 */
+    TArray<FString> ExtractConnectedNodeTypes(class UEdGraphPin* Pin) const;
 
     /** 加载节点注册表 */
     void LoadNodeRegistry();

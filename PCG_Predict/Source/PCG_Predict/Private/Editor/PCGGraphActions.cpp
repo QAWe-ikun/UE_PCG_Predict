@@ -124,16 +124,31 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
     EEdGraphPinDirection NewNodePinDirection =
         (TargetPin->Direction == EGPD_Output) ? EGPD_Input : EGPD_Output;
 
-    // 在新节点上查找兼容的 Pin
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Looking for %s pin on new node to connect"),
+           NewNodePinDirection == EGPD_Input ? TEXT("Input") : TEXT("Output"));
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] New node has %d pins total"), NewEdGraphNode->Pins.Num());
+
+    // 在新节点上查找第一个匹配方向的 Pin（类型兼容）
     UEdGraphPin* CompatiblePin = nullptr;
+    int32 PinIndex = 0;
+
     for (UEdGraphPin* Pin : NewEdGraphNode->Pins) {
       if (Pin && Pin->Direction == NewNodePinDirection) {
+        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   Pin[%d]: %s (Direction: %s, Type: %s)"),
+               PinIndex, *Pin->GetName(),
+               Pin->Direction == EGPD_Input ? TEXT("Input") : TEXT("Output"),
+               *Pin->PinType.PinCategory.ToString());
+
         // 检查 Pin 类型是否兼容
         if (ArePinsCompatible(Pin, TargetPin)) {
           CompatiblePin = Pin;
-          break;
+          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   -> Selected this pin (first compatible)"));
+          break; // 选择第一个兼容的pin
+        } else {
+          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   -> Not compatible with target pin"));
         }
       }
+      PinIndex++;
     }
 
     if (CompatiblePin) {
@@ -144,14 +159,17 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
         UEdGraphPin* OutputPin = (TargetPin->Direction == EGPD_Output) ? TargetPin : CompatiblePin;
         UEdGraphPin* InputPin = (TargetPin->Direction == EGPD_Input) ? TargetPin : CompatiblePin;
 
+        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Attempting connection: %s -> %s"),
+               *OutputPin->GetName(), *InputPin->GetName());
+
         if (Schema->TryCreateConnection(OutputPin, InputPin)) {
-          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Connection created successfully"));
+          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] ✓ Connection created successfully"));
         } else {
-          UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] Failed to create connection"));
+          UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] ✗ Failed to create connection"));
         }
       }
     } else {
-      UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] No compatible pin found on new node"));
+      UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] ✗ No compatible pin found on new node"));
     }
   }
 
@@ -343,10 +361,32 @@ bool FPCGGraphActions::ArePinsCompatible(UEdGraphPin *PinA, UEdGraphPin *PinB) {
     return false;
   }
 
+  // 方向必须相反
   if (PinA->Direction == PinB->Direction) {
     return false;
   }
 
+  // PCG 特殊处理：主数据pin（名为"In"或"Out"）可以连接任何数据pin
+  FString PinAName = PinA->GetName();
+  FString PinBName = PinB->GetName();
+
+  bool bPinAIsMainData = (PinAName == TEXT("In") || PinAName == TEXT("Out"));
+  bool bPinBIsMainData = (PinBName == TEXT("In") || PinBName == TEXT("Out"));
+
+  // 如果任一pin是主数据pin，且另一个不是特殊pin（Overrides、Execution等），则兼容
+  if (bPinAIsMainData || bPinBIsMainData) {
+    // 排除特殊pin
+    bool bIsSpecialPin = PinAName.Contains(TEXT("Overrides")) ||
+                         PinAName.Contains(TEXT("Execution")) ||
+                         PinBName.Contains(TEXT("Overrides")) ||
+                         PinBName.Contains(TEXT("Execution"));
+
+    if (!bIsSpecialPin) {
+      return true;
+    }
+  }
+
+  // 严格类型匹配
   if (PinA->PinType != PinB->PinType) {
     return false;
   }
