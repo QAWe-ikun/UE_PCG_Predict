@@ -1,9 +1,10 @@
-#include "PCGPredictModule.h"
+#include "Core/PCGPredictModule.h"
 #include "Core/PCGPredictorEngine.h"
 #include "Editor/FPCGPinHoverIntegration.h"
 #include "Editor/PCGEditorCommands.h"
 #include "Editor/PCGEditorExtension.h"
 #include "Editor/PCGToolbarExtension.h"
+#include "Config/PCGPredictSettings.h"
 
 #define LOCTEXT_NAMESPACE "FPCGPredictModule"
 
@@ -12,6 +13,9 @@ void FPCGPredictModule::StartupModule()
   UE_LOG(LogTemp, Log, TEXT("========================================"));
   UE_LOG(LogTemp, Log, TEXT("PCGPredict module started"));
   UE_LOG(LogTemp, Log, TEXT("========================================"));
+
+  // 加载配置
+  const UPCGPredictSettings* Settings = GetDefault<UPCGPredictSettings>();
 
   // 初始化工具栏扩展
   ToolbarExtension = MakeShareable(new FPCGToolbarExtension());
@@ -30,20 +34,16 @@ void FPCGPredictModule::StartupModule()
   PinHoverIntegration = MakeShareable(new FPCGPinHoverIntegration());
   PinHoverIntegration->Initialize();
   PinHoverIntegration->SetPredictorEngine(Engine);
+  PinHoverIntegration->SetEnabled(Settings->bEnablePinHoverPrediction); // 从配置读取
 
-  // 注意：点击回调现在在 ShowPrediction 中设置，包含完整的 GraphPanel 和 Pin
-  // 信息
-
-  // 注册到 FCoreDelegates 的 Tick
-  FCoreDelegates::OnEndFrame.AddLambda([this]() {
+  // 注册到 FCoreDelegates 的 Tick，使用配置的检测间隔
+  FCoreDelegates::OnEndFrame.AddLambda([this, Interval = Settings->HoverDetectionInterval]() {
     static int32 TickCounter = 0;
-    static const int32 TickInterval =
-        10; // 每 10 帧检测一次（约 100ms @ 100fps）
 
     TickCounter++;
 
-    // 每 10 帧执行一次 Pin 检测
-    if (TickCounter % TickInterval == 0) {
+    // 使用配置的间隔执行 Pin 检测
+    if (TickCounter % Interval == 0) {
       if (PinHoverIntegration.IsValid()) {
         PinHoverIntegration->DetectPinUnderCursor();
       }
@@ -51,7 +51,9 @@ void FPCGPredictModule::StartupModule()
   });
 
   UE_LOG(LogTemp, Log, TEXT("✓ Registered to FCoreDelegates::OnEndFrame"));
-  UE_LOG(LogTemp, Log, TEXT("✓ Pin hover detection enabled (100ms interval)"));
+  UE_LOG(LogTemp, Log, TEXT("✓ Pin hover detection interval: %d frames"), Settings->HoverDetectionInterval);
+  UE_LOG(LogTemp, Log, TEXT("✓ Pin hover prediction: %s"),
+         Settings->bEnablePinHoverPrediction ? TEXT("enabled") : TEXT("disabled"));
   UE_LOG(LogTemp, Log, TEXT("✓ PredictorEngine initialized"));
 
   UE_LOG(LogTemp, Log, TEXT("PCGPredict module initialization complete"));

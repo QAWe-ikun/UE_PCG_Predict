@@ -1,4 +1,4 @@
-#include "PCGGraphActions.h"
+#include "Editor/PCGGraphActions.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
@@ -106,11 +106,15 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
   NewEdGraphNode->NodePosY = SpawnLocation.Y;
   NodeCreator.Finalize();
 
+  // 确保节点的 Pins 已经创建
+  NewEdGraphNode->AllocateDefaultPins();
+
   // 6. 同步位置到数据层
   NewPCGNode->PositionX = SpawnLocation.X;
   NewPCGNode->PositionY = SpawnLocation.Y;
 
-  UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Node created successfully"));
+  UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Node created successfully, Pins count: %d"),
+         NewEdGraphNode->Pins.Num());
 
   // 7. 创建连接
   if (TargetPin && NewEdGraphNode) {

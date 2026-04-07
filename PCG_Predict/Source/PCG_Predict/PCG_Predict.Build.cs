@@ -33,7 +33,8 @@ public class PCG_Predict : ModuleRules
 				"InputCore",
 				"SlateCore",
 				"Json",
-				"JsonUtilities"
+				"JsonUtilities",
+				"DeveloperSettings"
 			}
 			);
 

@@ -16,6 +16,6 @@ private:
   void ExtendToolbar();
 
   /** 工具栏按钮回调 */
-  void OnPredictButtonClicked();
+  void OnTogglePredictionClicked();
   void OnIntentButtonClicked();
 };

@@ -60,6 +60,12 @@ public:
   /** 获取预测引擎（供外部访问） */
   FPCGPredictorEngine *GetPredictorEngine() { return PredictorEngine.Get(); }
 
+  /** 设置启用/禁用状态 */
+  void SetEnabled(bool bEnabled);
+
+  /** 获取启用状态 */
+  bool IsEnabled() const { return bIsEnabled; }
+
 private:
   /** 预测引擎 */
   TSharedPtr<FPCGPredictorEngine> PredictorEngine;
@@ -93,6 +99,9 @@ private:
 
   /** 候选点击回调 */
   FOnCandidateClicked OnCandidateClickedCallback;
+
+  /** 是否启用预测功能 */
+  bool bIsEnabled = true;
 
   /** 创建预测浮层 */
   void CreatePredictionPopup();

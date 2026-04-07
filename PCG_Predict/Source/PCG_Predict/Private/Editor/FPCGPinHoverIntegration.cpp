@@ -1,10 +1,10 @@
 #include "Editor/FPCGPinHoverIntegration.h"
 #include "Core/PCGPredictorEngine.h"
+#include "Editor/PCGGraphActions.h"
 #include "EdGraph/EdGraph.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "HAL/PlatformTime.h"
-#include "PCGGraphActions.h"
 #include "SGraphNode.h"
 #include "SGraphPanel.h"
 #include "UI/SPCGPredictionPopup.h"
@@ -79,6 +79,11 @@ UEdGraphPin *GetUEdGraphPinFromWidget(TSharedPtr<SWidget> Widget) {
 }
 
 void FPCGPinHoverIntegration::DetectPinUnderCursor() {
+  // 早期退出检查：如果功能被禁用，直接返回
+  if (!bIsEnabled) {
+    return;
+  }
+
   // 检查 Slate 应用是否初始化
   if (!FSlateApplication::Get().IsInitialized()) {
     return;
@@ -457,4 +462,16 @@ FPCGPinHoverIntegration::GetPredictDirection(const FString &Direction) {
   return (Direction == TEXT("Input") || Direction == TEXT("EGPD_Input"))
              ? EPCGPredictPinDirection::Input
              : EPCGPredictPinDirection::Output;
+}
+
+void FPCGPinHoverIntegration::SetEnabled(bool bEnabled) {
+  bIsEnabled = bEnabled;
+
+  // 如果禁用，立即隐藏预测窗口
+  if (!bEnabled) {
+    HidePrediction();
+  }
+
+  UE_LOG(LogTemp, Log, TEXT("[PCGPinHoverIntegration] Prediction %s"),
+         bEnabled ? TEXT("enabled") : TEXT("disabled"));
 }

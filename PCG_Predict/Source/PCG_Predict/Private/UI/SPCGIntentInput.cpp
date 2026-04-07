@@ -1,11 +1,15 @@
 #include "UI/SPCGIntentInput.h"
+#include "Editor/PCGGraphFactory.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "Widgets/Notifications/SNotificationList.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Layout/SSeparator.h"
 #include "Widgets/SBoxPanel.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Misc/MessageDialog.h"
 
 #define LOCTEXT_NAMESPACE "PCGIntentInput"
 
@@ -118,9 +122,28 @@ TSharedRef<SWidget> SPCGIntentInput::BuildQuickSelectionRow() {
 FReply SPCGIntentInput::OnConfirmClicked() {
   if (IntentTextBox.IsValid()) {
     FString IntentText = IntentTextBox->GetText().ToString();
-    if (!IntentText.IsEmpty()) {
-      OnIntentConfirmedDelegate.ExecuteIfBound(IntentText);
+
+    if (IntentText.IsEmpty()) {
+      FMessageDialog::Open(EAppMsgType::Ok,
+          LOCTEXT("EmptyIntent", "请输入有效的意图描述"));
+      return FReply::Handled();
     }
+
+    // 创建 PCG Graph
+    UPCGGraph* NewGraph = FPCGGraphFactory::CreateGraphWithIntent(IntentText);
+
+    if (NewGraph) {
+      // 成功通知
+      FNotificationInfo Info(LOCTEXT("GraphCreated", "PCG Graph 创建成功"));
+      Info.ExpireDuration = 3.0f;
+      FSlateNotificationManager::Get().AddNotification(Info);
+
+      UE_LOG(LogTemp, Log, TEXT("[SPCGIntentInput] Created PCG Graph with intent: %s"), *IntentText);
+    } else {
+      FMessageDialog::Open(EAppMsgType::Ok,
+          LOCTEXT("GraphCreationFailed", "PCG Graph 创建失败，请检查保存路径配置"));
+    }
+
     CloseInput();
   }
 
