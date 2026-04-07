@@ -51,6 +51,9 @@ public:
   /** 隐藏预测 */
   void HidePrediction();
 
+  /** 显示起始节点预测（空白区域） */
+  void ShowStarterNodePrediction(TSharedPtr<SGraphPanel> GraphPanel, FVector2D MousePos);
+
   /** 手动触发（从工具栏） */
   void TriggerPredictionFromToolbar();
 

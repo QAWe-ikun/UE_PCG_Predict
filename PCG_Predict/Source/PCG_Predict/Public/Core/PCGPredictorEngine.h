@@ -27,6 +27,7 @@ class FPCGPredictorEngine
 public:
     void Initialize(const FString& ModelPath);
     TArray<FPCGCandidate> Predict(EPCGPredictPinDirection Direction, class UEdGraphPin* ContextPin = nullptr);
+    TArray<FPCGCandidate> PredictStarterNodes();
     void SetIntent(const FString& Text);
 
   private:

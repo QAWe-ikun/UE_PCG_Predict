@@ -57,6 +57,70 @@ TArray<FPCGCandidate> FPCGPredictorEngine::Predict(EPCGPredictPinDirection Direc
     return GetSampleCandidates(Direction, ContextPin);
 }
 
+TArray<FPCGCandidate> FPCGPredictorEngine::PredictStarterNodes()
+{
+    TArray<FPCGCandidate> Candidates;
+
+    if (NodeRegistry.Num() == 0) {
+      UE_LOG(LogTemp, Warning, TEXT("Node registry is empty"));
+      return Candidates;
+    }
+
+    // 查找没有输入pin的节点（起始节点/数据源节点）
+    TArray<int32> StarterIndices;
+    for (int32 i = 0; i < NodeRegistry.Num(); i++) {
+      const FPCGNodeRegistryEntry& Entry = NodeRegistry[i];
+
+      // 排除 Debug 节点和 None 节点
+      if (Entry.Id == 130 || Entry.Name == TEXT("None")) {
+        continue;
+      }
+
+      // 没有输入pin的节点
+      if (Entry.InputTypes.Num() == 0 && Entry.OutputTypes.Num() > 0) {
+        StarterIndices.Add(i);
+      }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Found %d starter nodes (no input pins)"),
+           StarterIndices.Num());
+
+    if (StarterIndices.Num() == 0) {
+      UE_LOG(LogTemp, Warning, TEXT("No starter nodes found"));
+      return Candidates;
+    }
+
+    // 随机选择 5 个起始节点
+    TArray<int32> SelectedIndices;
+    int32 NumToSelect = FMath::Min(5, StarterIndices.Num());
+
+    while (SelectedIndices.Num() < NumToSelect) {
+      int32 RandomIdx = FMath::RandRange(0, StarterIndices.Num() - 1);
+      int32 ActualIndex = StarterIndices[RandomIdx];
+
+      if (!SelectedIndices.Contains(ActualIndex)) {
+        SelectedIndices.Add(ActualIndex);
+
+        const FPCGNodeRegistryEntry& Entry = NodeRegistry[ActualIndex];
+
+        FPCGCandidate Candidate;
+        Candidate.NodeTypeId = Entry.Id;
+        Candidate.NodeTypeName = Entry.Name;
+        Candidate.Score = 0.95f - (SelectedIndices.Num() * 0.08f);
+        Candidate.Source = EPCGCandidateSource::CreateNew;
+
+        Candidates.Add(Candidate);
+      }
+    }
+
+    // 按分数排序
+    Candidates.Sort([](const FPCGCandidate &A, const FPCGCandidate &B) {
+      return A.Score > B.Score;
+    });
+
+    return Candidates;
+}
+
 void FPCGPredictorEngine::SetIntent(const FString& Text)
 {
   CurrentIntent = Text;

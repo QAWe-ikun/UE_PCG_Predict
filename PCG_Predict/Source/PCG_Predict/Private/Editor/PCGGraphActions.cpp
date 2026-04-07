@@ -27,24 +27,32 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
                                             UEdGraphPin *TargetPin,
                                             EEdGraphPinDirection Direction,
                                             FVector2D SpawnLocation) {
-  if (!GraphPanel.IsValid() || !TargetPin) {
+  if (!GraphPanel.IsValid()) {
     UE_LOG(LogTemp, Error,
-           TEXT("[PCGGraphActions] Invalid GraphPanel or TargetPin"));
+           TEXT("[PCGGraphActions] Invalid GraphPanel"));
     return false;
   }
 
-  // 从 TargetPin 获取 Graph
-  UEdGraphNode *OuterNode = Cast<UEdGraphNode>(TargetPin->GetOuter());
-  if (!OuterNode) {
-    UE_LOG(LogTemp, Error,
-           TEXT("[PCGGraphActions] Cannot get outer node from pin"));
-    return false;
+  UEdGraph *EdGraph = nullptr;
+
+  // 如果有 TargetPin，从 TargetPin 获取 Graph
+  if (TargetPin) {
+    UEdGraphNode *OuterNode = Cast<UEdGraphNode>(TargetPin->GetOuter());
+    if (!OuterNode) {
+      UE_LOG(LogTemp, Error,
+             TEXT("[PCGGraphActions] Cannot get outer node from pin"));
+      return false;
+    }
+
+    EdGraph = OuterNode->GetGraph();
+  } else {
+    // 没有 TargetPin，从 GraphPanel 获取 Graph
+    EdGraph = GraphPanel->GetGraphObj();
   }
 
-  UEdGraph *EdGraph = OuterNode->GetGraph();
   if (!EdGraph) {
     UE_LOG(LogTemp, Error,
-           TEXT("[PCGGraphActions] Cannot get graph from node"));
+           TEXT("[PCGGraphActions] Cannot get graph"));
     return false;
   }
 
@@ -116,8 +124,13 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
   UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Node created successfully, Pins count: %d"),
          NewEdGraphNode->Pins.Num());
 
-  // 7. 创建连接
+  // 7. 创建连接（如果有 TargetPin）
   if (TargetPin && NewEdGraphNode) {
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] ========== Connection Logic =========="));
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] TargetPin: %s (Direction: %s)"),
+           *TargetPin->GetName(),
+           TargetPin->Direction == EGPD_Output ? TEXT("Output") : TEXT("Input"));
+
     // 确定新节点上需要连接的 Pin 方向
     // 如果 TargetPin 是输出，新节点应该用输入连接
     // 如果 TargetPin 是输入，新节点应该用输出连接
@@ -171,6 +184,8 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
     } else {
       UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] ✗ No compatible pin found on new node"));
     }
+  } else if (!TargetPin) {
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] No TargetPin provided, node created without connection (starter node)"));
   }
 
   return true;
