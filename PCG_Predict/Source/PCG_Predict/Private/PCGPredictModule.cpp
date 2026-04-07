@@ -42,15 +42,8 @@ void FPCGPredictModule::StartupModule()
 
     TickCounter++;
 
-    // 每 60 帧输出一次心跳日志
-    if (TickCounter % 60 == 0) {
-      UE_LOG(LogTemp, Log, TEXT("[Ticker] Heartbeat #%d"), TickCounter);
-    }
-
     // 每 10 帧执行一次 Pin 检测
     if (TickCounter % TickInterval == 0) {
-      UE_LOG(LogTemp, Verbose, TEXT("[Ticker] Running Pin detection..."));
-
       if (PinHoverIntegration.IsValid()) {
         PinHoverIntegration->DetectPinUnderCursor();
       }

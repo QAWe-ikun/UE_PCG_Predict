@@ -5,11 +5,20 @@
 #include "EdGraph/EdGraphSchema.h"
 #include "GraphEditor.h"
 #include "SGraphPanel.h"
+#include "UObject/UObjectIterator.h"
+#include "Misc/FileHelper.h"
+#include "Serialization/JsonSerializer.h"
+#include "Dom/JsonObject.h"
+#include "GraphEditorActions.h"
 
 // PCG 核心头文件
 #include "PCGGraph.h"
 #include "PCGNode.h"
 #include "PCGSettings.h"
+
+// PCG 编辑器节点类（需要私有路径访问）
+#include "PCGEditorGraph.h"
+#include "Nodes/PCGEditorGraphNode.h"
 
 #define LOCTEXT_NAMESPACE "PCGGraphActions"
 
@@ -52,11 +61,7 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
     return false;
   }
 
-  UE_LOG(LogTemp, Log,
-         TEXT("[PCGGraphActions] Creating node: %s at %.1f, %.1f"),
-         *NodeTypeName, SpawnLocation.X, SpawnLocation.Y);
-
-  // 1. 创建 Settings
+  // 1. 查找 Settings 类
   UClass *SettingsClass = FindPCGSettingsClass(NodeTypeName);
   if (!SettingsClass) {
     UE_LOG(LogTemp, Error,
@@ -65,62 +70,45 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
     return false;
   }
 
-  // 2. 使用事务创建节点（支持 Undo/Redo）
-  const FScopedTransaction Transaction(
-      LOCTEXT("PCGGraphActions_CreateNode", "Create PCG Node"));
+  UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Found settings class: %s"),
+         *SettingsClass->GetName());
 
-  // 标记 EdGraph 已修改
-  EdGraph->Modify();
-
-  // 3. 创建数据层节点
-  UPCGSettings *Settings = NewObject<UPCGSettings>(PCGGraph, SettingsClass);
-  if (!Settings) {
-    UE_LOG(LogTemp, Error, TEXT("[PCGGraphActions] Failed to create Settings"));
+  // 2. 转换为 PCGEditorGraph
+  UPCGEditorGraph* PCGEditorGraph = Cast<UPCGEditorGraph>(EdGraph);
+  if (!PCGEditorGraph) {
+    UE_LOG(LogTemp, Error, TEXT("[PCGGraphActions] EdGraph is not a UPCGEditorGraph"));
     return false;
   }
 
-  UPCGNode *NewPCGNode = PCGGraph->AddNode(Settings);
+  // 3. 使用事务创建节点（支持 Undo/Redo）
+  const FScopedTransaction Transaction(
+      LOCTEXT("PCGGraphActions_CreateNode", "Create PCG Node"));
+
+  PCGEditorGraph->Modify();
+
+  // 4. 创建数据层节点
+  UPCGSettings* DefaultSettings = nullptr;
+  UPCGNode *NewPCGNode = PCGGraph->AddNodeOfType(SettingsClass, DefaultSettings);
   if (!NewPCGNode) {
     UE_LOG(LogTemp, Error,
            TEXT("[PCGGraphActions] Failed to add node to graph"));
     return false;
   }
 
-// 4. 设置节点位置
-#if WITH_EDITOR
-  NewPCGNode->SetNodePosition((int32)SpawnLocation.X, (int32)SpawnLocation.Y);
-#endif
+  UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] PCG Node created"));
 
-  // 5. 创建 Editor Graph Node（关键！）
-  // 直接使用 EdGraph 创建 Editor Graph Node
-  UEdGraphNode *NewEditorNode = nullptr;
-  {
-    FGraphNodeCreator<UEdGraphNode> NodeCreator(*EdGraph);
-    NewEditorNode = NodeCreator.CreateNode(false);
-    if (NewEditorNode) {
-      NewEditorNode->NodePosX = SpawnLocation.X;
-      NewEditorNode->NodePosY = SpawnLocation.Y;
-      NodeCreator.Finalize();
+  // 5. 创建可视化层节点
+  FGraphNodeCreator<UPCGEditorGraphNode> NodeCreator(*PCGEditorGraph);
+  UPCGEditorGraphNode* NewEdGraphNode = NodeCreator.CreateUserInvokedNode(true);
 
-      // 添加到 Graph 的节点数组
-      EdGraph->AddNode(NewEditorNode, false, false);
+  NewEdGraphNode->Construct(NewPCGNode);
+  NewEdGraphNode->NodePosX = SpawnLocation.X;
+  NewEdGraphNode->NodePosY = SpawnLocation.Y;
+  NodeCreator.Finalize();
 
-      UE_LOG(LogTemp, Log,
-             TEXT("[PCGGraphActions] Created Editor Graph Node: %s at (%.1f, "
-                  "%.1f)"),
-             *NewEditorNode->GetClass()->GetName(), SpawnLocation.X,
-             SpawnLocation.Y);
-    }
-  }
-
-  UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] PCG Node created: %s"),
-         *NodeTypeName);
-
-  // 6. 选中并聚焦到新节点
-  if (GraphPanel.IsValid() && NewEditorNode) {
-    GraphPanel->SelectionManager.ClearSelectionSet();
-    GraphPanel->SelectionManager.SetNodeSelection(NewEditorNode, true);
-  }
+  // 6. 同步位置到数据层
+  NewPCGNode->PositionX = SpawnLocation.X;
+  NewPCGNode->PositionY = SpawnLocation.Y;
 
   UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Node created successfully"));
 
@@ -143,13 +131,8 @@ UPCGNode *FPCGGraphActions::CreatePCGNode(UPCGGraph *Graph,
     return nullptr;
   }
 
-  UPCGSettings *Settings = NewObject<UPCGSettings>(Graph, SettingsClass);
-  if (!Settings) {
-    UE_LOG(LogTemp, Error, TEXT("[PCGGraphActions] Failed to create Settings"));
-    return nullptr;
-  }
-
-  UPCGNode *NewNode = Graph->AddNode(Settings);
+  UPCGSettings* DefaultSettings = nullptr;
+  UPCGNode *NewNode = Graph->AddNodeOfType(SettingsClass, DefaultSettings);
   if (!NewNode) {
     UE_LOG(LogTemp, Error,
            TEXT("[PCGGraphActions] Failed to add node to graph"));
@@ -163,172 +146,109 @@ UPCGNode *FPCGGraphActions::CreatePCGNode(UPCGGraph *Graph,
   return NewNode;
 }
 
+// 辅助函数：安全添加到映射表，过滤掉 nullptr
+void SafeAddToMap(TMap<FString, UClass*>& Map, const FString& Key, UClass* Class) {
+  if (Class) {
+    Map.Add(Key, Class);
+  }
+}
+
 UClass *FPCGGraphActions::FindPCGSettingsClass(const FString &NodeTypeName) {
   static TMap<FString, UClass *> SettingsClassMap;
+  static bool bHasUpdatedJson = false;
 
   if (SettingsClassMap.Num() == 0) {
-    // Common nodes
-    SettingsClassMap.Add(TEXT("Difference"),
-                         FindClass(TEXT("/Script/PCG.PCGDifferenceSettings")));
-    SettingsClassMap.Add(TEXT("Union"),
-                         FindClass(TEXT("/Script/PCG.PCGUnionSettings")));
-    SettingsClassMap.Add(
-        TEXT("Intersection"),
-        FindClass(TEXT("/Script/PCG.PCGOuterIntersectionSettings")));
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Building class map from actual UE classes..."));
 
-    // Samplers
-    SettingsClassMap.Add(
-        TEXT("SurfaceSampler"),
-        FindClass(TEXT("/Script/PCG.PCGSurfaceSamplerSettings")));
-    SettingsClassMap.Add(
-        TEXT("SplineSampler"),
-        FindClass(TEXT("/Script/PCG.PCGSplineSamplerSettings")));
-    SettingsClassMap.Add(TEXT("GridSampler"),
-                         FindClass(TEXT("/Script/PCG.PCGGridSamplerSettings")));
-    SettingsClassMap.Add(
-        TEXT("VolumeSampler"),
-        FindClass(TEXT("/Script/PCG.PCGVolumeSamplerSettings")));
+    // 第一步：枚举所有实际存在的 PCG Settings 类
+    TMap<FString, FString> ClassNameToPath; // ClassName -> FullPath
+    for (TObjectIterator<UClass> It; It; ++It) {
+      UClass* Class = *It;
+      if (Class && Class->IsChildOf(UPCGSettings::StaticClass()) && !Class->HasAnyClassFlags(CLASS_Abstract)) {
+        FString FullPath = Class->GetPathName();
+        FString ClassName = Class->GetName();
+        ClassNameToPath.Add(ClassName, FullPath);
+      }
+    }
 
-    // Transform
-    SettingsClassMap.Add(
-        TEXT("TransformPoints"),
-        FindClass(TEXT("/Script/PCG.PCGTransformPointsSettings")));
-    SettingsClassMap.Add(
-        TEXT("OrientPointsToSurface"),
-        FindClass(TEXT("/Script/PCG.PCGOrientPointsToSurfaceSettings")));
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Found %d PCG Settings classes"), ClassNameToPath.Num());
 
-    // Filter
-    SettingsClassMap.Add(
-        TEXT("DensityFilter"),
-        FindClass(TEXT("/Script/PCG.PCGDensityFilterSettings")));
-    SettingsClassMap.Add(TEXT("FilterByTag"),
-                         FindClass(TEXT("/Script/PCG.PCGFilterByTagSettings")));
-    SettingsClassMap.Add(
-        TEXT("RandomSelection"),
-        FindClass(TEXT("/Script/PCG.PCGRandomSelectionSettings")));
+    // 第二步：从 JSON 读取节点名称和类名的映射
+    FString ConfigPath = TEXT("D:/experiment/UE_PCG_Predict/python/config/node_registry.json");
+    FString JsonString;
 
-    // Spawner
-    SettingsClassMap.Add(
-        TEXT("StaticMeshSpawner"),
-        FindClass(TEXT("/Script/PCG.PCGStaticMeshSpawnerSettings")));
+    if (FFileHelper::LoadFileToString(JsonString, *ConfigPath)) {
+      TSharedPtr<FJsonObject> JsonObject;
+      TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
 
-    // Attribute
-    SettingsClassMap.Add(
-        TEXT("AttributeTransfer"),
-        FindClass(TEXT("/Script/PCG.PCGAttributeTransferSettings")));
-    SettingsClassMap.Add(
-        TEXT("SetAttributes"),
-        FindClass(TEXT("/Script/PCG.PCGSetAttributesSettings")));
+      if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid()) {
+        const TArray<TSharedPtr<FJsonValue>>* NodesArray;
+        if (JsonObject->TryGetArrayField(TEXT("nodes"), NodesArray)) {
 
-    // Spatial
-    SettingsClassMap.Add(TEXT("FindFloor"),
-                         FindClass(TEXT("/Script/PCG.PCGFindFloorSettings")));
-    SettingsClassMap.Add(
-        TEXT("RemoveBottom"),
-        FindClass(TEXT("/Script/PCG.PCGRemoveBottomSettings")));
+          // 创建可修改的副本用于更新
+          TArray<TSharedPtr<FJsonValue>> ModifiedNodesArray;
 
-    // Graph
-    SettingsClassMap.Add(TEXT("Graph"),
-                         FindClass(TEXT("/Script/PCG.PCGGraphSettings")));
-    SettingsClassMap.Add(TEXT("MultiGraph"),
-                         FindClass(TEXT("/Script/PCG.PCGMultiGraphSettings")));
+          // 第三步：更新 JSON 中的 class_path 字段
+          for (const TSharedPtr<FJsonValue>& NodeValue : *NodesArray) {
+            const TSharedPtr<FJsonObject>* NodeObj;
+            if (NodeValue->TryGetObject(NodeObj)) {
+              FString Name, ClassName;
+              if ((*NodeObj)->TryGetStringField(TEXT("name"), Name) &&
+                  (*NodeObj)->TryGetStringField(TEXT("class"), ClassName)) {
 
-    // Create Points
-    SettingsClassMap.Add(
-        TEXT("CreatePoints"),
-        FindClass(TEXT("/Script/PCG.PCGCreatePointsSettings")));
-    SettingsClassMap.Add(
-        TEXT("CreatePointsGrid"),
-        FindClass(TEXT("/Script/PCG.PCGCreatePointsGridSettings")));
+                // 创建可修改的副本
+                TSharedPtr<FJsonObject> ModifiedNodeObj = MakeShareable(new FJsonObject(**NodeObj));
 
-    // Debug
-    SettingsClassMap.Add(TEXT("Debug"),
-                         FindClass(TEXT("/Script/PCG.PCGDebugSettings")));
-    SettingsClassMap.Add(
-        TEXT("PrintString"),
-        FindClass(TEXT("/Script/PCG.PCGPrintElementSettings")));
+                // 查找实际的类路径
+                FString* FoundPath = ClassNameToPath.Find(ClassName);
+                if (FoundPath) {
+                  // 更新 JSON 对象
+                  ModifiedNodeObj->SetStringField(TEXT("class_path"), *FoundPath);
 
-    // Control Flow
-    SettingsClassMap.Add(TEXT("Branch"),
-                         FindClass(TEXT("/Script/PCG.PCGBranchSettings")));
-    SettingsClassMap.Add(TEXT("Switch"),
-                         FindClass(TEXT("/Script/PCG.PCGSwitchSettings")));
+                  // 加载类并添加到映射表
+                  UClass* FoundClass = FindClass(**FoundPath);
+                  if (FoundClass) {
+                    SettingsClassMap.Add(Name, FoundClass);
+                  }
+                } else {
+                  // 类不存在，标记为 null
+                  ModifiedNodeObj->SetStringField(TEXT("class_path"), TEXT(""));
+                  UE_LOG(LogTemp, Verbose, TEXT("[PCGGraphActions] Class not found: %s"), *ClassName);
+                }
 
-    // Metadata
-    SettingsClassMap.Add(
-        TEXT("AttributeCast"),
-        FindClass(TEXT("/Script/PCG.PCGAttributeCastSettings")));
-    SettingsClassMap.Add(
-        TEXT("AttributeFilter"),
-        FindClass(TEXT("/Script/PCG.PCGAttributeFilteringSettings")));
-    SettingsClassMap.Add(
-        TEXT("AttributeRemap"),
-        FindClass(TEXT("/Script/PCG.PCGAttributeRemapSettings")));
-    SettingsClassMap.Add(
-        TEXT("AttributeNoise"),
-        FindClass(TEXT("/Script/PCG.PCGAttributeNoiseSettings")));
+                ModifiedNodesArray.Add(MakeShareable(new FJsonValueObject(ModifiedNodeObj)));
+              }
+            }
+          }
 
-    // More common nodes
-    SettingsClassMap.Add(
-        TEXT("AddComponent"),
-        FindClass(TEXT("/Script/PCG.PCGAddComponentSettings")));
-    SettingsClassMap.Add(TEXT("AddTags"),
-                         FindClass(TEXT("/Script/PCG.PCGAddTagSettings")));
-    SettingsClassMap.Add(
-        TEXT("ApplyHierarchy"),
-        FindClass(TEXT("/Script/PCG.PCGApplyHierarchySettings")));
-    SettingsClassMap.Add(TEXT("ClusterElement"),
-                         FindClass(TEXT("/Script/PCG.PCGClusterSettings")));
-    SettingsClassMap.Add(
-        TEXT("CollapsePoints"),
-        FindClass(TEXT("/Script/PCG.PCGCollapsePointsSettings")));
-    SettingsClassMap.Add(
-        TEXT("CombinePoints"),
-        FindClass(TEXT("/Script/PCG.PCGCombinePointsSettings")));
-    SettingsClassMap.Add(
-        TEXT("FindConvexHull2D"),
-        FindClass(TEXT("/Script/PCG.PCGConvexHull2DSettings")));
-    SettingsClassMap.Add(
-        TEXT("CreatePointsSphere"),
-        FindClass(TEXT("/Script/PCG.PCGCreatePointsSphereSettings")));
-    SettingsClassMap.Add(
-        TEXT("CreateSpline"),
-        FindClass(TEXT("/Script/PCG.PCGCreateSplineSettings")));
-    SettingsClassMap.Add(
-        TEXT("DensityRemap"),
-        FindClass(TEXT("/Script/PCG.PCGDensityRemapSettings")));
-    SettingsClassMap.Add(
-        TEXT("GenerateSeed"),
-        FindClass(TEXT("/Script/PCG.PCGGenerateSeedSettings")));
-    SettingsClassMap.Add(TEXT("GetBounds"),
-                         FindClass(TEXT("/Script/PCG.PCGGetBoundsSettings")));
-    SettingsClassMap.Add(TEXT("MutateSeed"),
-                         FindClass(TEXT("/Script/PCG.PCGMutateSeedSettings")));
-    SettingsClassMap.Add(
-        TEXT("NormalToDensity"),
-        FindClass(TEXT("/Script/PCG.PCGNormalToDensitySettings")));
-    SettingsClassMap.Add(
-        TEXT("PartitionByActorDataLayers"),
-        FindClass(TEXT("/Script/PCG.PCGPartitionByActorDataLayersSettings")));
-    SettingsClassMap.Add(
-        TEXT("ResetPointCenter"),
-        FindClass(TEXT("/Script/PCG.PCGResetPointCenterSettings")));
-    SettingsClassMap.Add(
-        TEXT("SampleTexture"),
-        FindClass(TEXT("/Script/PCG.PCGSampleTextureSettings")));
-    SettingsClassMap.Add(
-        TEXT("SortAttributes"),
-        FindClass(TEXT("/Script/PCG.PCGSortAttributesSettings")));
-    SettingsClassMap.Add(TEXT("SplitPoints"),
-                         FindClass(TEXT("/Script/PCG.PCGSplitPointsSettings")));
-    SettingsClassMap.Add(
-        TEXT("SubdivideSpline"),
-        FindClass(TEXT("/Script/PCG.PCGSubdivideSplineSettings")));
-    SettingsClassMap.Add(TEXT("ToPoint"),
-                         FindClass(TEXT("/Script/PCG.PCGCollapseSettings")));
-    SettingsClassMap.Add(
-        TEXT("VisualizeAttribute"),
-        FindClass(TEXT("/Script/PCG.PCGVisualizeAttributeSettings")));
+          // 更新 JSON 对象中的 nodes 数组
+          JsonObject->SetArrayField(TEXT("nodes"), ModifiedNodesArray);
+
+          // 第四步：保存更新后的 JSON
+          if (!bHasUpdatedJson) {
+            FString OutputString;
+            TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
+            if (FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer)) {
+              if (FFileHelper::SaveStringToFile(OutputString, *ConfigPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) {
+                UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Updated node_registry.json with class paths"));
+                bHasUpdatedJson = true;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Loaded %d valid node classes"), SettingsClassMap.Num());
+  }
+
+  // 旧的硬编码映射作为后备（如果 JSON 加载失败）
+  if (SettingsClassMap.Num() == 0) {
+    UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] JSON loading failed, using fallback mappings"));
+    SafeAddToMap(SettingsClassMap, TEXT("Difference"),
+        FindClass(TEXT("/Script/PCG.PCGDifferenceSettings")));
+    SafeAddToMap(SettingsClassMap, TEXT("Union"),
+        FindClass(TEXT("/Script/PCG.PCGUnionSettings")));
   }
 
   UClass **FoundClass = SettingsClassMap.Find(NodeTypeName);
@@ -344,6 +264,12 @@ UClass *FPCGGraphActions::FindClass(const FString &ClassPath) {
   if (!FoundClass) {
     FoundClass = LoadObject<UClass>(nullptr, *ClassPath);
   }
+
+  // 不输出警告，静默失败
+  if (!FoundClass) {
+    UE_LOG(LogTemp, Verbose, TEXT("[PCGGraphActions] Class not found: %s"), *ClassPath);
+  }
+
   return FoundClass;
 }
 

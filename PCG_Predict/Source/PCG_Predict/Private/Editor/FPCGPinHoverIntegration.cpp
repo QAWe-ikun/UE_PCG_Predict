@@ -81,7 +81,6 @@ UEdGraphPin *GetUEdGraphPinFromWidget(TSharedPtr<SWidget> Widget) {
 void FPCGPinHoverIntegration::DetectPinUnderCursor() {
   // 检查 Slate 应用是否初始化
   if (!FSlateApplication::Get().IsInitialized()) {
-    UE_LOG(LogTemp, Warning, TEXT("[Tick] Slate application not initialized"));
     return;
   }
 
@@ -100,8 +99,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
                             MousePos.Y <= WindowPosition.Y + WindowSize.Y);
 
     if (bMouseInWindowX && bMouseInWindowY) {
-      UE_LOG(LogTemp, Log,
-             TEXT("[Tick] Mouse is on prediction window, keeping it open"));
       return;
     }
   }
@@ -109,7 +106,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
   // 获取根窗口
   TSharedPtr<SWindow> RootWindow = FGlobalTabmanager::Get()->GetRootWindow();
   if (!RootWindow.IsValid()) {
-    UE_LOG(LogTemp, Warning, TEXT("[Tick] Root window not valid"));
     return;
   }
 
@@ -119,7 +115,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
   FWidgetPath WidgetPath =
       FSlateApplication::Get().LocateWindowUnderMouse(MousePos, Windows);
   if (WidgetPath.Widgets.Num() == 0) {
-    UE_LOG(LogTemp, Log, TEXT("[Tick] No widget path under mouse"));
     HidePrediction();
     ConsecutiveDetectionCount = 0;
     LastDetectedWidgetType = TEXT("");
@@ -131,7 +126,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
   // 获取最上层的 Widget
   TSharedPtr<SWidget> WidgetUnderMouse = WidgetPath.Widgets.Last().Widget;
   if (!WidgetUnderMouse.IsValid()) {
-    UE_LOG(LogTemp, Warning, TEXT("[Tick] Widget under mouse not valid"));
     HidePrediction();
     ConsecutiveDetectionCount = 0;
     LastDetectedWidgetType = TEXT("");
@@ -139,9 +133,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
     CurrentGraphPanel = nullptr;
     return;
   }
-
-  FString WidgetTypeName = WidgetUnderMouse->GetType().ToString();
-  UE_LOG(LogTemp, Log, TEXT("[Tick] Widget under mouse: %s"), *WidgetTypeName);
 
   // 从鼠标下的 Widget 开始向上查找 Pin 类型
   TSharedPtr<SWidget> CurrentWidget = WidgetUnderMouse;
@@ -152,9 +143,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
     const FName CurrentWidgetType = CurrentWidget->GetType();
     FString CurrentTypeName = CurrentWidgetType.ToString();
     FString LowerTypeName = CurrentTypeName.ToLower();
-
-    UE_LOG(LogTemp, Log, TEXT("[Tick] Widget[%d]: %s"), Depth,
-           *CurrentTypeName);
 
     // 检查是否是 Pin 类型
     bool bIsPin = LowerTypeName.Contains(TEXT("pin")) &&
@@ -167,9 +155,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
                   !LowerTypeName.Contains(TEXT("area"));
 
     if (bIsPin) {
-      UE_LOG(LogTemp, Log, TEXT("✓ Detected Pin Widget: %s (Depth: %d)"),
-             *CurrentTypeName, Depth);
-
       // 尝试获取节点名称
       FString NodeName = TEXT("Node");
       TSharedPtr<SWidget> ParentWidget = CurrentWidget->GetParentWidget();
@@ -177,21 +162,16 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
       // 向上查找最多 15 层，寻找 GraphNode 和 GraphPanel
       for (int32 i = 0; i < 15 && ParentWidget.IsValid(); i++) {
         FString ParentTypeName = ParentWidget->GetType().ToString();
-        UE_LOG(LogTemp, Log, TEXT("  Parent[%d]: %s"), i, *ParentTypeName);
 
         // 查找 GraphNode
         if (ParentTypeName.Contains(TEXT("GraphNode")) ||
             ParentTypeName.Contains(TEXT("PCGEditorGraphNode"))) {
-          UE_LOG(LogTemp, Log,
-                 TEXT("  Found GraphNode type, getting title..."));
-
           // 使用 GetEditableNodeTitle() 获取节点名称
           NodeName = GetNodeNameFromSGraphNode(ParentWidget);
 
           // 如果还是 "Node"，使用后备名称
           if (NodeName == TEXT("Node")) {
             NodeName = TEXT("PCG Node");
-            UE_LOG(LogTemp, Log, TEXT("  Using fallback name: %s"), *NodeName);
           }
 
           // 从 GraphNode 获取 GraphPanel
@@ -199,8 +179,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
               StaticCastSharedPtr<SGraphNode>(ParentWidget);
           if (GraphNodeWidget.IsValid()) {
             FoundGraphPanel = GraphNodeWidget->GetOwnerPanel();
-            UE_LOG(LogTemp, Log, TEXT("  Found GraphPanel: %s"),
-                   FoundGraphPanel.IsValid() ? TEXT("Valid") : TEXT("Invalid"));
           }
         }
 
@@ -208,8 +186,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
       }
 
       ConsecutiveDetectionCount++;
-      UE_LOG(LogTemp, Log, TEXT("[Tick] ConsecutiveDetectionCount: %d"),
-             ConsecutiveDetectionCount);
 
       if (ConsecutiveDetectionCount < 3) {
         return;
@@ -225,7 +201,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
 
       if (CurrentTypeName == LastDetectedWidgetType &&
           PredictionPopupWindow.IsValid()) {
-        UE_LOG(LogTemp, Log, TEXT("[Tick] Same widget, skip"));
         return;
       }
 
@@ -250,13 +225,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
       CurrentGraphPanel = FoundGraphPanel;
       CurrentMousePosition = MousePos;
 
-      UE_LOG(LogTemp, Log, TEXT("Showing prediction for: %s.%s (%s)"),
-             *NodeName, *PinName, *Direction);
-      UE_LOG(LogTemp, Log, TEXT("  GraphPanel: %s"),
-             FoundGraphPanel.IsValid() ? TEXT("Valid") : TEXT("Invalid"));
-      UE_LOG(LogTemp, Log, TEXT("  TargetPin: %s"),
-             PinObj ? TEXT("Valid") : TEXT("Invalid"));
-
       ShowPrediction(PinName, Direction, NodeName, FoundGraphPanel, PinObj);
       return;
     }
@@ -266,10 +234,6 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
   }
 
   // 如果鼠标不在 Pin 上且不在预测窗口上，则隐藏预测
-  if (ConsecutiveDetectionCount > 0) {
-    UE_LOG(LogTemp, Log, TEXT("[Tick] Left Pin widget area"));
-  }
-
   HidePrediction();
   ConsecutiveDetectionCount = 0;
   LastDetectedWidgetType = TEXT("");

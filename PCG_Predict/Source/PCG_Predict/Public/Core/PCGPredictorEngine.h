@@ -6,6 +6,19 @@
 class FPCGOnnxRuntime;
 
 /**
+ * PCG 节点注册信息
+ */
+struct FPCGNodeRegistryEntry
+{
+    int32 Id;
+    FString Name;
+    FString ClassName;
+    FString Category;
+    TArray<FString> InputTypes;
+    TArray<FString> OutputTypes;
+};
+
+/**
  * PCG 预测引擎
  * 负责加载模型、运行推理、返回候选节点
  */
@@ -22,6 +35,9 @@ public:
 
     /** 当前意图 */
     FString CurrentIntent;
+
+    /** 节点注册表 */
+    TArray<FPCGNodeRegistryEntry> NodeRegistry;
 
     /** 获取示例候选（临时用） */
     TArray<FPCGCandidate> GetSampleCandidates() const;

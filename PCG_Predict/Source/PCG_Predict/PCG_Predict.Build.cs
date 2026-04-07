@@ -31,7 +31,9 @@ public class PCG_Predict : ModuleRules
 				"PCG",
 				"Projects",
 				"InputCore",
-				"SlateCore"
+				"SlateCore",
+				"Json",
+				"JsonUtilities"
 			}
 			);
 
@@ -49,9 +51,17 @@ public class PCG_Predict : ModuleRules
 				"PCGEditor",
 				"GraphEditor",
 				"PCG",
-				"CoreUObject"
+				"CoreUObject",
+				"StructUtilsEditor"
 			}
 			);
+
+		// 添加 PCGEditor 私有路径以访问 UPCGEditorGraph
+		PrivateIncludePaths.AddRange(
+			new string[] {
+				System.IO.Path.Combine(EngineDirectory, "Plugins/PCG/Source/PCGEditor/Private")
+			}
+		);
 
 
 		DynamicallyLoadedModuleNames.AddRange(
