@@ -112,6 +112,45 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
 
   UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Node created successfully"));
 
+  // 7. 创建连接
+  if (TargetPin && NewEdGraphNode) {
+    // 确定新节点上需要连接的 Pin 方向
+    // 如果 TargetPin 是输出，新节点应该用输入连接
+    // 如果 TargetPin 是输入，新节点应该用输出连接
+    EEdGraphPinDirection NewNodePinDirection =
+        (TargetPin->Direction == EGPD_Output) ? EGPD_Input : EGPD_Output;
+
+    // 在新节点上查找兼容的 Pin
+    UEdGraphPin* CompatiblePin = nullptr;
+    for (UEdGraphPin* Pin : NewEdGraphNode->Pins) {
+      if (Pin && Pin->Direction == NewNodePinDirection) {
+        // 检查 Pin 类型是否兼容
+        if (ArePinsCompatible(Pin, TargetPin)) {
+          CompatiblePin = Pin;
+          break;
+        }
+      }
+    }
+
+    if (CompatiblePin) {
+      // 获取 Schema 并创建连接
+      const UEdGraphSchema* Schema = EdGraph->GetSchema();
+      if (Schema) {
+        // 根据方向决定连接顺序（输出 -> 输入）
+        UEdGraphPin* OutputPin = (TargetPin->Direction == EGPD_Output) ? TargetPin : CompatiblePin;
+        UEdGraphPin* InputPin = (TargetPin->Direction == EGPD_Input) ? TargetPin : CompatiblePin;
+
+        if (Schema->TryCreateConnection(OutputPin, InputPin)) {
+          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Connection created successfully"));
+        } else {
+          UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] Failed to create connection"));
+        }
+      }
+    } else {
+      UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] No compatible pin found on new node"));
+    }
+  }
+
   return true;
 }
 
@@ -174,7 +213,9 @@ UClass *FPCGGraphActions::FindPCGSettingsClass(const FString &NodeTypeName) {
     UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Found %d PCG Settings classes"), ClassNameToPath.Num());
 
     // 第二步：从 JSON 读取节点名称和类名的映射
-    FString ConfigPath = TEXT("D:/experiment/UE_PCG_Predict/python/config/node_registry.json");
+    // 使用插件 Content 目录
+    FString PluginContentDir = FPaths::ProjectPluginsDir() / TEXT("PCG_Predict/Content/Config/");
+    FString ConfigPath = PluginContentDir / TEXT("node_registry.json");
     FString JsonString;
 
     if (FFileHelper::LoadFileToString(JsonString, *ConfigPath)) {

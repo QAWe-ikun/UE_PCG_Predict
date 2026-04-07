@@ -105,33 +105,20 @@ TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates() const {
 void FPCGPredictorEngine::LoadNodeRegistry() {
   NodeRegistry.Empty();
 
-  // 构建配置文件路径 - 使用绝对路径或相对于项目根目录
-  FString ConfigPath;
+  // 构建配置文件路径 - 使用插件 Content 目录
+  FString PluginContentDir = FPaths::ProjectPluginsDir() / TEXT("PCG_Predict/Content/Config/");
+  FString ConfigPath = PluginContentDir / TEXT("node_registry.json");
 
-  // 尝试多个可能的路径
-  TArray<FString> PossiblePaths = {
-    FPaths::ProjectDir() / TEXT("python/config/node_registry.json"),
-    FPaths::ProjectDir() / TEXT("../python/config/node_registry.json"),
-    TEXT("D:/experiment/UE_PCG_Predict/python/config/node_registry.json")
-  };
-
-  bool bFileFound = false;
-  for (const FString& Path : PossiblePaths) {
-    if (FPaths::FileExists(Path)) {
-      ConfigPath = Path;
-      bFileFound = true;
-      break;
-    }
-  }
-
+  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ========================================"));
   UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Attempting to load node registry..."));
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Project Dir: %s"), *FPaths::ProjectDir());
+  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ProjectPluginsDir: %s"), *FPaths::ProjectPluginsDir());
+  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] PluginContentDir: %s"), *PluginContentDir);
+  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Config path: %s"), *ConfigPath);
+  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] File exists: %s"), FPaths::FileExists(ConfigPath) ? TEXT("YES") : TEXT("NO"));
 
-  if (!bFileFound) {
-    UE_LOG(LogTemp, Warning, TEXT("[PCGPredictor] Node registry JSON not found in any of these paths:"));
-    for (const FString& Path : PossiblePaths) {
-      UE_LOG(LogTemp, Warning, TEXT("[PCGPredictor]   - %s"), *Path);
-    }
+  if (!FPaths::FileExists(ConfigPath)) {
+    UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] Node registry JSON not found at: %s"), *ConfigPath);
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ========================================"));
     return;
   }
 
