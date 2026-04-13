@@ -57,15 +57,52 @@ void FPCGGraphFactory::OpenGraphEditor(UPCGGraph* Graph)
 
 void FPCGGraphFactory::AttachIntentAsComment(UPCGGraph* Graph, const FString& Intent)
 {
-	if (!Graph)
-		return;
+    if (!Graph || Intent.IsEmpty())
+    {
+        return;
+    }
 
-	// 暂时使用 Graph 的描述字段存储意图
-	// 未来可以考虑创建专门的 PCG Comment 节点
-	UE_LOG(LogTemp, Log, TEXT("[PCGGraphFactory] Intent attached: %s"), *Intent);
+    // 使用 Description 字段存储意图（UPCGGraph 原生支持）
+    // 格式: "[PCGPredict_Intent]茂密森林，高低错落"
+    FString IntentTag = FString::Printf(TEXT("[PCGPredict_Intent]%s"), *Intent);
+    Graph->Description = FText::FromString(IntentTag);
 
-	// TODO: 在 PCG Graph 中创建 Comment 节点或使用元数据存储意图
-	// 当前版本先记录日志，Graph 创建成功即可
+    UE_LOG(LogTemp, Log, TEXT("[PCGGraphFactory] Intent attached: %s"), *Intent);
+}
+
+FString FPCGGraphFactory::GetGraphIntent(const UPCGGraph* Graph)
+{
+    if (!Graph)
+    {
+        return FString();
+    }
+
+    FString Desc = Graph->Description.ToString();
+    const FString Prefix = TEXT("[PCGPredict_Intent]");
+
+    if (Desc.StartsWith(Prefix))
+    {
+        return Desc.RightChop(Prefix.Len());
+    }
+
+    return FString();
+}
+
+void FPCGGraphFactory::ClearGraphIntent(UPCGGraph* Graph)
+{
+    if (!Graph)
+    {
+        return;
+    }
+
+    FString Desc = Graph->Description.ToString();
+    const FString Prefix = TEXT("[PCGPredict_Intent]");
+
+    if (Desc.StartsWith(Prefix))
+    {
+        Graph->Description = FText::GetEmpty();
+        UE_LOG(LogTemp, Log, TEXT("[PCGGraphFactory] Intent cleared"));
+    }
 }
 
 FString FPCGGraphFactory::GetDefaultSavePath()
