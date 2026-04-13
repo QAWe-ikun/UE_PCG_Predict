@@ -1,5 +1,7 @@
 #include "Core/PCGPredictorEngine.h"
 #include "Inference/PCGOnnxRuntime.h"
+#include "Inference/PCGFastPredictor.h"
+#include "Inference/PCGDeepPredictor.h"
 #include "Math/RandomStream.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
@@ -10,320 +12,330 @@
 
 void FPCGPredictorEngine::Initialize(const FString& ModelPath)
 {
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ========================================"));
     UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Initializing predictor engine"));
 
-    // 构建模型路径
-    FString FullModelPath = ModelPath;
-    if (FullModelPath.IsEmpty()) {
-      // 默认路径：插件目录/Models/pcg_predict.onnx
-      FString PluginPath =
-          FPaths::ProjectPluginsDir() / TEXT("PCG_Predict/Models/");
-      FullModelPath = PluginPath / TEXT("pcg_predict.onnx");
-    }
-
-    // 初始化 ONNX 运行时
-    if (OnnxRuntime.IsValid()) {
-      OnnxRuntime->Initialize(FullModelPath);
-    } else {
-      OnnxRuntime = MakeShareable(new FPCGOnnxRuntime());
-      OnnxRuntime->Initialize(FullModelPath);
-    }
-
     // 加载节点注册表
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] About to load node registry..."));
     LoadNodeRegistry();
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Node registry loaded: %d nodes"), NodeRegistry.Num());
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Node registry: %d nodes"), NodeRegistry.Num());
 
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Predictor engine initialized. Model: %s"),
-           *FullModelPath);
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ========================================"));
+    // 模型根目录（PCG_Predict_Models/models/）
+    FString ModelsDir = FPaths::ProjectDir() / TEXT("PCG_Predict_Models/models");
+
+    // --- FastPredictor ---
+    FString LookupPath = ModelsDir / TEXT("fast_lookup.json");
+    FastPredictor = MakeShareable(new FPCGFastPredictor());
+    if (FastPredictor->Initialize(LookupPath))
+    {
+        UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] FastPredictor ready"));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[PCGPredictor] FastPredictor not ready (no lookup table)"));
+    }
+
+    // --- DeepPredictor ---
+    FString OnnxPath = ModelsDir / TEXT("deep_predictor.onnx");
+    DeepPredictor = MakeShareable(new FPCGDeepPredictor());
+    if (DeepPredictor->Initialize(OnnxPath))
+    {
+        UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] DeepPredictor ready"));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[PCGPredictor] DeepPredictor not ready (no ONNX model)"));
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Engine initialized"));
 }
 
-TArray<FPCGCandidate> FPCGPredictorEngine::Predict(EPCGPredictPinDirection Direction, UEdGraphPin* ContextPin)
+void FPCGPredictorEngine::Shutdown()
 {
-    TArray<FPCGCandidate> Candidates;
+    if (DeepPredictor.IsValid())
+    {
+        DeepPredictor->Shutdown();
+        DeepPredictor.Reset();
+    }
+    FastPredictor.Reset();
+}
 
-    if (!OnnxRuntime.IsValid() || !OnnxRuntime->IsValid()) {
-      // 返回示例数据用于测试
-      return GetSampleCandidates(Direction, ContextPin);
+TArray<FPCGCandidate> FPCGPredictorEngine::Predict(
+    EPCGPredictPinDirection Direction, UEdGraphPin* ContextPin)
+{
+    TArray<int32> RecentNodeIds = ExtractRecentNodeIds(ContextPin);
+
+    // --- Fast 推理（同步，立即返回）---
+    TArray<FPCGCandidate> FastResults;
+    if (FastPredictor.IsValid() && FastPredictor->IsValid())
+    {
+        FastResults = FastPredictor->Query(RecentNodeIds, Direction, 10);
+        FillNodeNames(FastResults);
+    }
+    else
+    {
+        // Fallback：随机样本
+        FastResults = GetSampleCandidates(Direction, ContextPin);
     }
 
-    // TODO: 构建输入张量
-    // TODO: 运行 ONNX 推理
-    // TODO: 解析输出并排序
+    // --- Deep 推理（异步，完成后回调更新 UI）---
+    if (DeepPredictor.IsValid() && DeepPredictor->IsValid())
+    {
+        FPCGDeepPredictRequest Req;
+        Req.ContextNodeIds  = RecentNodeIds;
+        Req.HistorySequence = RecentNodeIds;
+        Req.Direction       = Direction;
 
-    // 临时：返回示例数据
-    return GetSampleCandidates(Direction, ContextPin);
+        // 保存 Fast 结果的副本，供合并使用
+        TArray<FPCGCandidate> FastCopy = FastResults;
+
+        DeepPredictor->SubmitRequest(Req,
+            FOnDeepPredictComplete::CreateLambda(
+                [this, FastCopy](const FPCGDeepPredictResult& Result)
+                {
+                    if (!Result.bSuccess) return;
+
+                    TArray<FPCGCandidate> DeepResults = Result.Candidates;
+                    FillNodeNames(DeepResults);
+
+                    TArray<FPCGCandidate> Merged = MergeResults(FastCopy, DeepResults, 10);
+
+                    if (OnDeepResultReady)
+                    {
+                        OnDeepResultReady(Merged);
+                    }
+                }));
+    }
+
+    return FastResults;
 }
 
 TArray<FPCGCandidate> FPCGPredictorEngine::PredictStarterNodes()
 {
+    // 空历史 → FastPredictor 的 starter 表
+    if (FastPredictor.IsValid() && FastPredictor->IsValid())
+    {
+        TArray<int32> Empty;
+        TArray<FPCGCandidate> Results =
+            FastPredictor->Query(Empty, EPCGPredictPinDirection::Output, 5);
+        FillNodeNames(Results);
+        if (Results.Num() > 0) return Results;
+    }
+
+    // Fallback：查找无输入 pin 的节点
     TArray<FPCGCandidate> Candidates;
-
-    if (NodeRegistry.Num() == 0) {
-      UE_LOG(LogTemp, Warning, TEXT("Node registry is empty"));
-      return Candidates;
+    for (const FPCGNodeRegistryEntry& Entry : NodeRegistry)
+    {
+        if (Entry.Id == 130 || Entry.Name == TEXT("None")) continue;
+        if (Entry.InputTypes.Num() == 0 && Entry.OutputTypes.Num() > 0)
+        {
+            FPCGCandidate C;
+            C.NodeTypeId   = Entry.Id;
+            C.NodeTypeName = Entry.Name;
+            C.Score        = 0.5f;
+            C.Source       = EPCGCandidateSource::CreateNew;
+            Candidates.Add(C);
+        }
     }
-
-    // 查找没有输入pin的节点（起始节点/数据源节点）
-    TArray<int32> StarterIndices;
-    for (int32 i = 0; i < NodeRegistry.Num(); i++) {
-      const FPCGNodeRegistryEntry& Entry = NodeRegistry[i];
-
-      // 排除 Debug 节点和 None 节点
-      if (Entry.Id == 130 || Entry.Name == TEXT("None")) {
-        continue;
-      }
-
-      // 没有输入pin的节点
-      if (Entry.InputTypes.Num() == 0 && Entry.OutputTypes.Num() > 0) {
-        StarterIndices.Add(i);
-      }
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Found %d starter nodes (no input pins)"),
-           StarterIndices.Num());
-
-    if (StarterIndices.Num() == 0) {
-      UE_LOG(LogTemp, Warning, TEXT("No starter nodes found"));
-      return Candidates;
-    }
-
-    // 随机选择 5 个起始节点
-    TArray<int32> SelectedIndices;
-    int32 NumToSelect = FMath::Min(5, StarterIndices.Num());
-
-    while (SelectedIndices.Num() < NumToSelect) {
-      int32 RandomIdx = FMath::RandRange(0, StarterIndices.Num() - 1);
-      int32 ActualIndex = StarterIndices[RandomIdx];
-
-      if (!SelectedIndices.Contains(ActualIndex)) {
-        SelectedIndices.Add(ActualIndex);
-
-        const FPCGNodeRegistryEntry& Entry = NodeRegistry[ActualIndex];
-
-        FPCGCandidate Candidate;
-        Candidate.NodeTypeId = Entry.Id;
-        Candidate.NodeTypeName = Entry.Name;
-        Candidate.Score = 0.95f - (SelectedIndices.Num() * 0.08f);
-        Candidate.Source = EPCGCandidateSource::CreateNew;
-
-        Candidates.Add(Candidate);
-      }
-    }
-
-    // 按分数排序
-    Candidates.Sort([](const FPCGCandidate &A, const FPCGCandidate &B) {
-      return A.Score > B.Score;
-    });
-
+    if (Candidates.Num() > 5) Candidates.SetNum(5);
     return Candidates;
 }
 
 void FPCGPredictorEngine::SetIntent(const FString& Text)
 {
-  CurrentIntent = Text;
-  UE_LOG(LogTemp, Log, TEXT("Intent set: %s"), *Text);
-
-  // TODO: 解析意图并更新内部状态
+    CurrentIntent = Text;
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Intent set: %s"), *Text);
 }
 
-TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates(EPCGPredictPinDirection Direction, UEdGraphPin* ContextPin) const {
-  TArray<FPCGCandidate> Samples;
+FString FPCGPredictorEngine::GetNodeName(int32 NodeTypeId) const
+{
+    for (const FPCGNodeRegistryEntry& Entry : NodeRegistry)
+    {
+        if (Entry.Id == NodeTypeId) return Entry.Name;
+    }
+    return FString::Printf(TEXT("Node_%d"), NodeTypeId);
+}
 
-  if (NodeRegistry.Num() == 0) {
-    UE_LOG(LogTemp, Warning, TEXT("Node registry is empty"));
+// ---------------------------------------------------------------------------
+// 内部辅助
+// ---------------------------------------------------------------------------
+
+TArray<int32> FPCGPredictorEngine::ExtractRecentNodeIds(UEdGraphPin* Pin) const
+{
+    TArray<int32> Ids;
+    if (!Pin) return Ids;
+
+    // 从已连接节点的名称反查 type_id
+    for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+    {
+        if (!LinkedPin || !LinkedPin->GetOwningNode()) continue;
+        FString Title = LinkedPin->GetOwningNode()
+                            ->GetNodeTitle(ENodeTitleType::ListView).ToString();
+        for (const FPCGNodeRegistryEntry& Entry : NodeRegistry)
+        {
+            if (Entry.Name == Title)
+            {
+                Ids.AddUnique(Entry.Id);
+                break;
+            }
+        }
+    }
+    return Ids;
+}
+
+TArray<FString> FPCGPredictorEngine::ExtractConnectedNodeTypes(UEdGraphPin* Pin) const
+{
+    TArray<FString> Types;
+    if (!Pin) return Types;
+    for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+    {
+        if (LinkedPin && LinkedPin->GetOwningNode())
+        {
+            FString Title = LinkedPin->GetOwningNode()
+                                ->GetNodeTitle(ENodeTitleType::ListView).ToString();
+            if (!Title.IsEmpty()) Types.AddUnique(Title);
+        }
+    }
+    return Types;
+}
+
+void FPCGPredictorEngine::FillNodeNames(TArray<FPCGCandidate>& Candidates) const
+{
+    for (FPCGCandidate& C : Candidates)
+    {
+        C.NodeTypeName = GetNodeName(C.NodeTypeId);
+    }
+}
+
+TArray<FPCGCandidate> FPCGPredictorEngine::MergeResults(
+    const TArray<FPCGCandidate>& FastResults,
+    const TArray<FPCGCandidate>& DeepResults,
+    int32 TopK)
+{
+    // 建立 NodeTypeId → 分数映射
+    TMap<int32, float> ScoreMap;
+
+    for (const FPCGCandidate& C : FastResults)
+    {
+        ScoreMap.FindOrAdd(C.NodeTypeId) += C.Score * 0.4f;
+    }
+    for (const FPCGCandidate& C : DeepResults)
+    {
+        ScoreMap.FindOrAdd(C.NodeTypeId) += C.Score * 0.6f;
+    }
+
+    // 排序
+    TArray<TPair<int32, float>> Sorted;
+    for (auto& Pair : ScoreMap) Sorted.Add({Pair.Key, Pair.Value});
+    Sorted.Sort([](const TPair<int32,float>& A, const TPair<int32,float>& B){
+        return A.Value > B.Value;
+    });
+
+    // 构建结果（名称从 FastResults 或 DeepResults 中取）
+    TMap<int32, FString> NameMap;
+    for (const FPCGCandidate& C : FastResults)  NameMap.Add(C.NodeTypeId, C.NodeTypeName);
+    for (const FPCGCandidate& C : DeepResults)  NameMap.FindOrAdd(C.NodeTypeId) = C.NodeTypeName;
+
+    TArray<FPCGCandidate> Merged;
+    int32 Count = FMath::Min(TopK, Sorted.Num());
+    for (int32 i = 0; i < Count; ++i)
+    {
+        FPCGCandidate C;
+        C.NodeTypeId   = Sorted[i].Key;
+        C.NodeTypeName = NameMap.FindRef(Sorted[i].Key);
+        C.Score        = Sorted[i].Value;
+        C.Source       = EPCGCandidateSource::CreateNew;
+        Merged.Add(C);
+    }
+    return Merged;
+}
+
+TArray<FPCGCandidate> FPCGPredictorEngine::GetSampleCandidates(
+    EPCGPredictPinDirection Direction, UEdGraphPin* ContextPin) const
+{
+    TArray<FPCGCandidate> Samples;
+    if (NodeRegistry.Num() == 0) return Samples;
+
+    TArray<int32> ValidIndices;
+    for (int32 i = 0; i < NodeRegistry.Num(); i++)
+    {
+        const FPCGNodeRegistryEntry& E = NodeRegistry[i];
+        if (E.Id == 130 || E.Name == TEXT("None")) continue;
+        if (Direction == EPCGPredictPinDirection::Output && E.InputTypes.Num() > 0)
+            ValidIndices.Add(i);
+        else if (Direction == EPCGPredictPinDirection::Input && E.OutputTypes.Num() > 0)
+            ValidIndices.Add(i);
+    }
+    if (ValidIndices.Num() == 0) return Samples;
+
+    TArray<int32> Selected;
+    int32 Num = FMath::Min(5, ValidIndices.Num());
+    while (Selected.Num() < Num)
+    {
+        int32 Idx = ValidIndices[FMath::RandRange(0, ValidIndices.Num() - 1)];
+        if (!Selected.Contains(Idx))
+        {
+            Selected.Add(Idx);
+            FPCGCandidate C;
+            C.NodeTypeId   = NodeRegistry[Idx].Id;
+            C.NodeTypeName = NodeRegistry[Idx].Name;
+            C.Score        = 0.95f - Selected.Num() * 0.08f;
+            C.Source       = EPCGCandidateSource::CreateNew;
+            Samples.Add(C);
+        }
+    }
+    Samples.Sort([](const FPCGCandidate& A, const FPCGCandidate& B){ return A.Score > B.Score; });
     return Samples;
-  }
-
-  // 提取已连接节点的类型信息（仅用于显示）
-  TArray<FString> ConnectedNodeTypes = ExtractConnectedNodeTypes(ContextPin);
-
-  if (ConnectedNodeTypes.Num() > 0) {
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Pin has %d connected nodes:"), ConnectedNodeTypes.Num());
-    for (const FString& NodeType : ConnectedNodeTypes) {
-      UE_LOG(LogTemp, Log, TEXT("  - %s"), *NodeType);
-    }
-  } else {
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Pin has no existing connections"));
-  }
-
-  // 根据方向过滤节点
-  TArray<int32> ValidIndices;
-  for (int32 i = 0; i < NodeRegistry.Num(); i++) {
-    const FPCGNodeRegistryEntry& Entry = NodeRegistry[i];
-
-    // 排除 Debug 节点（id=130）
-    if (Entry.Id == 130) {
-      continue;
-    }
-
-    // 排除名为 "None" 的节点
-    if (Entry.Name == TEXT("None")) {
-      continue;
-    }
-
-    // 输出pin预测 → 需要有输入pin的节点
-    // 输入pin预测 → 需要有输出pin的节点
-    if (Direction == EPCGPredictPinDirection::Output) {
-      if (Entry.InputTypes.Num() > 0) {
-        ValidIndices.Add(i);
-      }
-    } else {
-      if (Entry.OutputTypes.Num() > 0) {
-        ValidIndices.Add(i);
-      }
-    }
-  }
-
-  if (ValidIndices.Num() == 0) {
-    UE_LOG(LogTemp, Warning, TEXT("No valid nodes found for direction: %s"),
-           Direction == EPCGPredictPinDirection::Output ? TEXT("Output") : TEXT("Input"));
-    return Samples;
-  }
-
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Found %d valid nodes for direction: %s"),
-         ValidIndices.Num(),
-         Direction == EPCGPredictPinDirection::Output ? TEXT("Output") : TEXT("Input"));
-
-  // 随机选择 5 个节点
-  TArray<int32> SelectedIndices;
-  int32 NumToSelect = FMath::Min(5, ValidIndices.Num());
-
-  while (SelectedIndices.Num() < NumToSelect) {
-    int32 RandomValidIndex = FMath::RandRange(0, ValidIndices.Num() - 1);
-    int32 ActualIndex = ValidIndices[RandomValidIndex];
-
-    if (!SelectedIndices.Contains(ActualIndex)) {
-      SelectedIndices.Add(ActualIndex);
-
-      const FPCGNodeRegistryEntry& Entry = NodeRegistry[ActualIndex];
-
-      FPCGCandidate Candidate;
-      Candidate.NodeTypeId = Entry.Id;
-      Candidate.NodeTypeName = Entry.Name;
-      Candidate.Score = 0.95f - (SelectedIndices.Num() * 0.08f); // 递减的分数
-      Candidate.Source = EPCGCandidateSource::CreateNew;
-
-      Samples.Add(Candidate);
-    }
-  }
-
-  // 按分数排序
-  Samples.Sort([](const FPCGCandidate &A, const FPCGCandidate &B) {
-    return A.Score > B.Score;
-  });
-
-  return Samples;
 }
 
-TArray<FString> FPCGPredictorEngine::ExtractConnectedNodeTypes(UEdGraphPin* Pin) const {
-  TArray<FString> NodeTypes;
+void FPCGPredictorEngine::LoadNodeRegistry()
+{
+    NodeRegistry.Empty();
 
-  if (!Pin) {
-    return NodeTypes;
-  }
+    FString PluginContentDir = FPaths::ProjectPluginsDir() / TEXT("PCG_Predict/Content/Config/");
+    FString ConfigPath = PluginContentDir / TEXT("node_registry.json");
 
-  // 遍历所有连接
-  for (UEdGraphPin* LinkedPin : Pin->LinkedTo) {
-    if (LinkedPin && LinkedPin->GetOwningNode()) {
-      UEdGraphNode* LinkedNode = LinkedPin->GetOwningNode();
-      FString NodeTitle = LinkedNode->GetNodeTitle(ENodeTitleType::ListView).ToString();
-
-      if (!NodeTitle.IsEmpty() && !NodeTypes.Contains(NodeTitle)) {
-        NodeTypes.Add(NodeTitle);
-      }
-    }
-  }
-
-  return NodeTypes;
-}
-
-void FPCGPredictorEngine::LoadNodeRegistry() {
-  NodeRegistry.Empty();
-
-  // 构建配置文件路径 - 使用插件 Content 目录
-  FString PluginContentDir = FPaths::ProjectPluginsDir() / TEXT("PCG_Predict/Content/Config/");
-  FString ConfigPath = PluginContentDir / TEXT("node_registry.json");
-
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ========================================"));
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Attempting to load node registry..."));
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ProjectPluginsDir: %s"), *FPaths::ProjectPluginsDir());
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] PluginContentDir: %s"), *PluginContentDir);
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Config path: %s"), *ConfigPath);
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] File exists: %s"), FPaths::FileExists(ConfigPath) ? TEXT("YES") : TEXT("NO"));
-
-  if (!FPaths::FileExists(ConfigPath)) {
-    UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] Node registry JSON not found at: %s"), *ConfigPath);
-    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] ========================================"));
-    return;
-  }
-
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Found config at: %s"), *ConfigPath);
-
-  // 读取文件
-  FString JsonString;
-  if (!FFileHelper::LoadFileToString(JsonString, *ConfigPath)) {
-    UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] Failed to load node registry: %s"), *ConfigPath);
-    return;
-  }
-
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] File loaded, size: %d bytes"), JsonString.Len());
-
-  // 解析 JSON
-  TSharedPtr<FJsonObject> JsonObject;
-  TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
-
-  if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid()) {
-    UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] Failed to parse node registry JSON"));
-    return;
-  }
-
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] JSON parsed successfully"));
-
-  // 读取节点数组
-  const TArray<TSharedPtr<FJsonValue>>* NodesArray;
-  if (!JsonObject->TryGetArrayField(TEXT("nodes"), NodesArray)) {
-    UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] No 'nodes' array found in JSON"));
-    return;
-  }
-
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Found nodes array with %d entries"), NodesArray->Num());
-
-  // 解析每个节点
-  for (const TSharedPtr<FJsonValue>& NodeValue : *NodesArray) {
-    const TSharedPtr<FJsonObject>* NodeObj;
-    if (!NodeValue->TryGetObject(NodeObj)) {
-      continue;
+    if (!FPaths::FileExists(ConfigPath))
+    {
+        UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] node_registry.json not found: %s"), *ConfigPath);
+        return;
     }
 
-    FPCGNodeRegistryEntry Entry;
-
-    // 读取字段
-    (*NodeObj)->TryGetNumberField(TEXT("id"), Entry.Id);
-    (*NodeObj)->TryGetStringField(TEXT("name"), Entry.Name);
-    (*NodeObj)->TryGetStringField(TEXT("class"), Entry.ClassName);
-    (*NodeObj)->TryGetStringField(TEXT("category"), Entry.Category);
-
-    // 读取输入类型数组
-    const TArray<TSharedPtr<FJsonValue>>* InputTypesArray;
-    if ((*NodeObj)->TryGetArrayField(TEXT("input_types"), InputTypesArray)) {
-      for (const TSharedPtr<FJsonValue>& TypeValue : *InputTypesArray) {
-        Entry.InputTypes.Add(TypeValue->AsString());
-      }
+    FString JsonString;
+    if (!FFileHelper::LoadFileToString(JsonString, *ConfigPath))
+    {
+        UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] Failed to read: %s"), *ConfigPath);
+        return;
     }
 
-    // 读取输出类型数组
-    const TArray<TSharedPtr<FJsonValue>>* OutputTypesArray;
-    if ((*NodeObj)->TryGetArrayField(TEXT("output_types"), OutputTypesArray)) {
-      for (const TSharedPtr<FJsonValue>& TypeValue : *OutputTypesArray) {
-        Entry.OutputTypes.Add(TypeValue->AsString());
-      }
+    TSharedPtr<FJsonObject> JsonObject;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+    if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
+    {
+        UE_LOG(LogTemp, Error, TEXT("[PCGPredictor] Failed to parse node_registry.json"));
+        return;
     }
 
-    NodeRegistry.Add(Entry);
-  }
+    const TArray<TSharedPtr<FJsonValue>>* NodesArray;
+    if (!JsonObject->TryGetArrayField(TEXT("nodes"), NodesArray)) return;
 
-  UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Loaded %d PCG nodes from registry"), NodeRegistry.Num());
+    for (const TSharedPtr<FJsonValue>& NodeValue : *NodesArray)
+    {
+        const TSharedPtr<FJsonObject>* NodeObj;
+        if (!NodeValue->TryGetObject(NodeObj)) continue;
+
+        FPCGNodeRegistryEntry Entry;
+        (*NodeObj)->TryGetNumberField(TEXT("id"),       Entry.Id);
+        (*NodeObj)->TryGetStringField(TEXT("name"),     Entry.Name);
+        (*NodeObj)->TryGetStringField(TEXT("class"),    Entry.ClassName);
+        (*NodeObj)->TryGetStringField(TEXT("category"), Entry.Category);
+
+        const TArray<TSharedPtr<FJsonValue>>* Arr;
+        if ((*NodeObj)->TryGetArrayField(TEXT("input_types"), Arr))
+            for (auto& V : *Arr) Entry.InputTypes.Add(V->AsString());
+        if ((*NodeObj)->TryGetArrayField(TEXT("output_types"), Arr))
+            for (auto& V : *Arr) Entry.OutputTypes.Add(V->AsString());
+
+        NodeRegistry.Add(Entry);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Loaded %d nodes"), NodeRegistry.Num());
 }

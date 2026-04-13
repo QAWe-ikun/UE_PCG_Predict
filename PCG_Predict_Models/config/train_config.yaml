@@ -1,5 +1,5 @@
 model:
-  num_node_types: 50
+  num_node_types: 195
   gnn_hidden: 64
   transformer_heads: 4
   transformer_layers: 2

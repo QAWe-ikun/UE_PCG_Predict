@@ -6,50 +6,81 @@ bool FPCGOnnxRuntime::Initialize(const FString& ModelPath)
 {
     ModelFilePath = ModelPath;
 
-    // 检查模型文件是否存在
     if (!FPaths::FileExists(ModelPath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("ONNX model not found: %s"), *ModelPath);
-        UE_LOG(LogTemp, Warning, TEXT("Running in mock mode"));
-        
-        // 模型不存在时进入模拟模式（用于开发测试）
-        bInitialized = true;  // 设为 true 允许继续运行
+        UE_LOG(LogTemp, Warning, TEXT("[OnnxRuntime] Model not found: %s — running in mock mode"), *ModelPath);
+        bInitialized = true;
         return true;
     }
 
-    // TODO: 初始化 ONNX Runtime
-    // 1. 创建环境
-    // 2. 加载模型
-    // 3. 获取输入/输出名称
-    
-    UE_LOG(LogTemp, Log, TEXT("ONNX Runtime initialized with: %s"), *ModelPath);
+    // TODO: 集成 ONNX Runtime 库后替换为真实初始化
+    // Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "PCGPredict");
+    // Ort::SessionOptions opts;
+    // opts.SetIntraOpNumThreads(1);
+    // OrtSession = new Ort::Session(env, *ModelPath, opts);
+
+    UE_LOG(LogTemp, Log, TEXT("[OnnxRuntime] Initialized: %s"), *ModelPath);
     bInitialized = true;
-    
     return true;
 }
 
 TArray<float> FPCGOnnxRuntime::RunInference(const TArray<float>& Input)
 {
-    if (!bInitialized)
+    if (!bInitialized) return {};
+
+    // TODO: 真实推理
+    // 当前返回 195 维模拟输出
+    TArray<float> Out;
+    Out.SetNum(195);
+    for (int32 i = 0; i < 195; ++i)
     {
-        UE_LOG(LogTemp, Error, TEXT("ONNX Runtime not initialized"));
-        return TArray<float>();
+        Out[i] = FMath::Max(0.0f, 1.0f - i * 0.005f);
+    }
+    return Out;
+}
+
+TArray<float> FPCGOnnxRuntime::RunInferenceMulti(const TArray<FPCGTensorInput>& Inputs)
+{
+    if (!bInitialized) return {};
+
+    if (Inputs.Num() == 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[OnnxRuntime] RunInferenceMulti: empty inputs"));
+        return {};
     }
 
-    // TODO: 运行 ONNX 推理
-    // 1. 创建输入张量
-    // 2. 运行推理
-    // 3. 获取输出张量
-    
-    // 临时：返回模拟输出（10 个类别的分数）
-    TArray<float> MockOutput;
-    MockOutput.SetNum(10);
-    
-    // 生成递减的模拟分数
-    for (int32 i = 0; i < 10; ++i)
+    // TODO: 集成 ONNX Runtime 后替换为真实多输入推理：
+    //
+    // TArray<const char*> InputNames;
+    // TArray<Ort::Value> InputTensors;
+    // Ort::MemoryInfo MemInfo = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+    //
+    // for (const FPCGTensorInput& T : Inputs)
+    // {
+    //     InputNames.Add(TCHAR_TO_ANSI(*T.Name));
+    //     TArray<int64> Shape = T.Shape;
+    //     InputTensors.Add(Ort::Value::CreateTensor<float>(
+    //         MemInfo,
+    //         const_cast<float*>(T.Data.GetData()), T.Data.Num(),
+    //         Shape.GetData(), Shape.Num()
+    //     ));
+    // }
+    //
+    // const char* OutputName = "logits";
+    // auto Outputs = Session->Run(Ort::RunOptions{nullptr},
+    //     InputNames.GetData(), InputTensors.GetData(), InputTensors.Num(),
+    //     &OutputName, 1);
+    //
+    // float* OutData = Outputs[0].GetTensorMutableData<float>();
+    // int64 OutSize  = Outputs[0].GetTensorTypeAndShapeInfo().GetElementCount();
+    // return TArray<float>(OutData, OutSize);
+
+    // 模拟：返回 195 维随机 logits
+    TArray<float> Out;
+    Out.SetNum(195);
+    for (int32 i = 0; i < 195; ++i)
     {
-        MockOutput[i] = 0.9f - i * 0.08f;
+        Out[i] = FMath::FRandRange(0.0f, 1.0f);
     }
-    
-    return MockOutput;
+    return Out;
 }

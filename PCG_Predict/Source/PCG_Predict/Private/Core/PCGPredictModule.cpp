@@ -1,9 +1,10 @@
 #include "Core/PCGPredictModule.h"
-#include "Core/PCGPredictorEngine.h"
-#include "Editor/FPCGPinHoverIntegration.h"
-#include "Editor/PCGEditorExtension.h"
-#include "Editor/PCGToolbarExtension.h"
 #include "Config/PCGPredictSettings.h"
+#include "Core/PCGPredictorEngine.h"
+#include "Editor/PCGEditorExtension.h"
+#include "Editor/FPCGPinHoverIntegration.h"
+#include "Editor/PCGToolbarExtension.h"
+
 
 #define LOCTEXT_NAMESPACE "FPCGPredictModule"
 
