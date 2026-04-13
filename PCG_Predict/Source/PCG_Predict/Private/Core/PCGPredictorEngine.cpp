@@ -84,7 +84,6 @@ TArray<FPCGCandidate> FPCGPredictorEngine::Predict(
     TArray<FPCGCandidate> FastResults =
         FastPredictor->Query(RecentNodeIds, Direction, 20);
     FillNodeNames(FastResults);
-    FilterByPinType(FastResults, Direction, ContextPin);
     if (FastResults.Num() > 10)
       FastResults.SetNum(10);
 
@@ -97,35 +96,16 @@ TArray<FPCGCandidate> FPCGPredictorEngine::Predict(
         Req.Direction       = Direction;
 
         TArray<FPCGCandidate> FastCopy = FastResults;
-        FName PinSubCategory =
-            ContextPin ? ContextPin->PinType.PinSubCategory : NAME_None;
 
         DeepPredictor->SubmitRequest(
             Req,
             FOnDeepPredictComplete::CreateLambda(
-                [this, FastCopy, Direction,
-                 PinSubCategory](const FPCGDeepPredictResult &Result) {
+                [this, FastCopy](const FPCGDeepPredictResult &Result) {
                   if (!Result.bSuccess)
                     return;
 
                   TArray<FPCGCandidate> DeepResults = Result.Candidates;
                   FillNodeNames(DeepResults);
-
-                  // Deep 结果也按 pin 类型过滤
-                  DeepResults.RemoveAll([&](const FPCGCandidate &C) {
-                    if (PinSubCategory.IsNone())
-                      return false;
-                    for (const FPCGNodeRegistryEntry &Entry : NodeRegistry) {
-                      if (Entry.Id != C.NodeTypeId)
-                        continue;
-                      const TArray<FString> &Types =
-                          (Direction == EPCGPredictPinDirection::Output)
-                              ? Entry.InputTypes
-                              : Entry.OutputTypes;
-                      return !IsTypeCompatible(Types, PinSubCategory);
-                    }
-                    return true;
-                  });
 
                   TArray<FPCGCandidate> Merged =
                       MergeResults(FastCopy, DeepResults, 10);
@@ -300,69 +280,6 @@ void FPCGPredictorEngine::FillNodeNames(TArray<FPCGCandidate>& Candidates) const
     {
         C.NodeTypeName = GetNodeName(C.NodeTypeId);
     }
-}
-
-bool FPCGPredictorEngine::IsTypeCompatible(const TArray<FString> &RegistryTypes,
-                                           const FName &PinSubCategory) {
-  if (RegistryTypes.IsEmpty())
-    return false;
-
-  // SubCategory 到注册表类型字符串的映射
-  // PCG pin SubCategory 格式通常是 "Point Data", "Spline Data" 等
-  FString SubCatStr = PinSubCategory.ToString();
-
-  for (const FString &T : RegistryTypes) {
-    if (T == TEXT("Any"))
-      return true;
-    if (T == TEXT("Point") && SubCatStr.Contains(TEXT("Point")))
-      return true;
-    if (T == TEXT("Spline") && SubCatStr.Contains(TEXT("Spline")))
-      return true;
-    if (T == TEXT("Param") && SubCatStr.Contains(TEXT("Param")))
-      return true;
-    if (T == TEXT("Landscape") && SubCatStr.Contains(TEXT("Landscape")))
-      return true;
-    if (T == TEXT("Volume") && SubCatStr.Contains(TEXT("Volume")))
-      return true;
-    // 复合类型 "Point|Spline|Landscape|Volume"
-    if (T.Contains(TEXT("|"))) {
-      TArray<FString> Parts;
-      T.ParseIntoArray(Parts, TEXT("|"));
-      for (const FString &Part : Parts) {
-        if (SubCatStr.Contains(Part))
-          return true;
-      }
-    }
-  }
-  return false;
-}
-
-void FPCGPredictorEngine::FilterByPinType(TArray<FPCGCandidate> &Candidates,
-                                          EPCGPredictPinDirection Direction,
-                                          UEdGraphPin *ContextPin) const {
-  if (!ContextPin)
-    return;
-
-  const FName SubCategory = ContextPin->PinType.PinSubCategory;
-  // SubCategory 为空（如 Execution pin）时不过滤
-  if (SubCategory.IsNone())
-    return;
-
-  Candidates.RemoveAll([&](const FPCGCandidate &C) {
-    for (const FPCGNodeRegistryEntry &Entry : NodeRegistry) {
-      if (Entry.Id != C.NodeTypeId)
-        continue;
-
-      const TArray<FString> &Types =
-          (Direction == EPCGPredictPinDirection::Output)
-              ? Entry.InputTypes // 输出 pin → 找能接收的节点（看 InputTypes）
-              : Entry
-                    .OutputTypes; // 输入 pin → 找能提供的节点（看 OutputTypes）
-
-      return !IsTypeCompatible(Types, SubCategory);
-    }
-    return true; // 注册表里找不到，过滤掉
-  });
 }
 
 TArray<FPCGCandidate> FPCGPredictorEngine::MergeResults(

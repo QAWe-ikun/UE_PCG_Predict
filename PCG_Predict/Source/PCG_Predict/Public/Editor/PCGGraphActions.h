@@ -43,18 +43,6 @@ public:
   static UClass *FindClass(const FString &ClassPath);
 
   /**
-   * 查找兼容的 Pin
-   */
-  static UEdGraphPin *FindCompatiblePin(UEdGraphNode *Node,
-                                        UEdGraphPin *TargetPin,
-                                        EEdGraphPinDirection Direction);
-
-  /**
-   * 检查 Pin 是否兼容
-   */
-  static bool ArePinsCompatible(UEdGraphPin *PinA, UEdGraphPin *PinB);
-
-  /**
    * 创建 Pin 连接
    */
   static void CreatePinConnection(UEdGraphPin *OutputPin,

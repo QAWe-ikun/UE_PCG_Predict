@@ -78,19 +78,6 @@ private:
     void FillNodeNames(TArray<FPCGCandidate>& Candidates) const;
 
     /**
-     * 过滤候选列表，只保留与 ContextPin 类型兼容的节点。
-     * Direction=Output → 检查候选节点的 InputTypes
-     * Direction=Input  → 检查候选节点的 OutputTypes
-     */
-    void FilterByPinType(TArray<FPCGCandidate>& Candidates,
-                         EPCGPredictPinDirection Direction,
-                         class UEdGraphPin* ContextPin) const;
-
-    /** 判断注册表类型字符串是否与 pin 的 SubCategory 兼容 */
-    static bool IsTypeCompatible(const TArray<FString>& RegistryTypes,
-                                 const FName& PinSubCategory);
-
-    /**
      * 合并 Fast 和 Deep 结果。
      * final_score = fast_score * 0.4 + deep_score * 0.6
      */

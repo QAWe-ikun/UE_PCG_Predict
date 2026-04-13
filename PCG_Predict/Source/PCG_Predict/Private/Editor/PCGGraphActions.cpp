@@ -138,42 +138,42 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
            NewNodePinDirection == EGPD_Input ? TEXT("Input") : TEXT("Output"));
     UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] New node has %d pins total"), NewEdGraphNode->Pins.Num());
 
-    // 在新节点上查找第一个匹配方向的 Pin（类型兼容）
+    // 在新节点上查找第一个 Schema 允许连接的 pin
     UEdGraphPin* CompatiblePin = nullptr;
-    int32 PinIndex = 0;
+    const UEdGraphSchema* Schema = EdGraph->GetSchema();
 
-    for (UEdGraphPin* Pin : NewEdGraphNode->Pins) {
-      if (Pin && Pin->Direction == NewNodePinDirection) {
-        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   Pin[%d]: %s (Category: %s, SubCategory: %s)"),
-               PinIndex, *Pin->GetName(),
+    if (Schema) {
+      for (UEdGraphPin* Pin : NewEdGraphNode->Pins) {
+        if (!Pin || Pin->Direction != NewNodePinDirection) continue;
+
+        UEdGraphPin* OutputPin = (TargetPin->Direction == EGPD_Output) ? TargetPin : Pin;
+        UEdGraphPin* InputPin  = (TargetPin->Direction == EGPD_Input)  ? TargetPin : Pin;
+
+        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   Checking: %s (Category: %s, SubCategory: %s)"),
+               *Pin->GetName(),
                *Pin->PinType.PinCategory.ToString(),
                *Pin->PinType.PinSubCategory.ToString());
 
-        if (ArePinsCompatible(Pin, TargetPin)) {
+        FPinConnectionResponse Response = Schema->CanCreateConnection(OutputPin, InputPin);
+        if (Response.Response != CONNECT_RESPONSE_DISALLOW) {
           CompatiblePin = Pin;
-          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   -> Selected"));
+          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   -> Selected: %s"), *Pin->GetName());
           break;
         }
       }
-      PinIndex++;
     }
 
     if (CompatiblePin) {
-      // 获取 Schema 并创建连接
-      const UEdGraphSchema* Schema = EdGraph->GetSchema();
-      if (Schema) {
-        // 根据方向决定连接顺序（输出 -> 输入）
-        UEdGraphPin* OutputPin = (TargetPin->Direction == EGPD_Output) ? TargetPin : CompatiblePin;
-        UEdGraphPin* InputPin = (TargetPin->Direction == EGPD_Input) ? TargetPin : CompatiblePin;
+      UEdGraphPin* OutputPin = (TargetPin->Direction == EGPD_Output) ? TargetPin : CompatiblePin;
+      UEdGraphPin* InputPin  = (TargetPin->Direction == EGPD_Input)  ? TargetPin : CompatiblePin;
 
-        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Attempting connection: %s -> %s"),
-               *OutputPin->GetName(), *InputPin->GetName());
+      UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Attempting connection: %s -> %s"),
+             *OutputPin->GetName(), *InputPin->GetName());
 
-        if (Schema->TryCreateConnection(OutputPin, InputPin)) {
-          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] ✓ Connection created successfully"));
-        } else {
-          UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] ✗ Failed to create connection"));
-        }
+      if (Schema && Schema->TryCreateConnection(OutputPin, InputPin)) {
+        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] ✓ Connection created successfully"));
+      } else {
+        UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] ✗ Failed to create connection"));
       }
     } else {
       UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] ✗ No compatible pin found on new node"));
@@ -334,61 +334,6 @@ UClass *FPCGGraphActions::FindClass(const FString &ClassPath) {
   }
 
   return FoundClass;
-}
-
-UEdGraphPin *
-FPCGGraphActions::FindCompatiblePin(UEdGraphNode *Node, UEdGraphPin *TargetPin,
-                                    EEdGraphPinDirection Direction) {
-  if (!Node || !TargetPin) {
-    return nullptr;
-  }
-
-  for (UEdGraphPin *Pin : Node->Pins) {
-    if (!Pin || Pin->Direction != Direction) {
-      continue;
-    }
-
-    if (FPCGGraphActions::ArePinsCompatible(Pin, TargetPin)) {
-      return Pin;
-    }
-  }
-
-  return nullptr;
-}
-
-bool FPCGGraphActions::ArePinsCompatible(UEdGraphPin *PinA, UEdGraphPin *PinB) {
-  if (!PinA || !PinB) {
-    return false;
-  }
-
-  // 方向必须相反
-  if (PinA->Direction == PinB->Direction) {
-    return false;
-  }
-
-  const FName CategoryA = PinA->PinType.PinCategory;
-  const FName CategoryB = PinB->PinType.PinCategory;
-
-  // Attribute Set pin（Overrides 等）不参与数据连接
-  static const FName AttrSet(TEXT("Attribute Set"));
-  if (CategoryA == AttrSet || CategoryB == AttrSet) {
-    return false;
-  }
-
-  // Category 相同直接兼容
-  if (CategoryA == CategoryB) {
-    return true;
-  }
-
-  // PCG "Any" 类型的 pin 在 UE 里 Category = None，可以连接任何数据 pin
-  static const FName NoneCategory(TEXT("None"));
-  static const FName ConcreteData(TEXT("Concrete Data"));
-  if ((CategoryA == NoneCategory && CategoryB == ConcreteData) ||
-      (CategoryA == ConcreteData && CategoryB == NoneCategory)) {
-    return true;
-  }
-
-  return false;
 }
 
 void FPCGGraphActions::CreatePinConnection(UEdGraphPin *OutputPin,

@@ -5,6 +5,10 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "HAL/PlatformTime.h"
+#include "PCGEditorGraph.h"
+#include "PCGGraph.h"
+#include "PCGSettings.h"
+#include "Nodes/PCGEditorGraphNode.h"
 #include "SGraphNode.h"
 #include "SGraphPanel.h"
 #include "UI/SPCGPredictionPopup.h"
@@ -374,6 +378,59 @@ void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
             ConnectedNodes.Add(NodeTitle);
           }
         }
+      }
+    }
+
+    // 用 Schema 过滤掉所有 pin 都连不上的候选节点
+    // 临时在图中创建节点，用 Schema->CanCreateConnection 判断，再删除
+    if (Pin && GraphPanel.IsValid()) {
+      UEdGraph *EdGraph = GraphPanel->GetGraphObj();
+      const UEdGraphSchema *Schema = EdGraph ? EdGraph->GetSchema() : nullptr;
+      UPCGEditorGraph *PCGEdGraph = Cast<UPCGEditorGraph>(EdGraph);
+      UPCGGraph *PCGGraph = PCGEdGraph ? Cast<UPCGGraph>(PCGEdGraph->GetOuter()) : nullptr;
+      if (Schema && PCGEdGraph && PCGGraph) {
+        EEdGraphPinDirection CandidatePinDir =
+            (Pin->Direction == EGPD_Output) ? EGPD_Input : EGPD_Output;
+
+        TArray<FPCGCandidate> Filtered;
+        for (const FPCGCandidate &Candidate : Candidates) {
+          UClass *SettingsClass =
+              FPCGGraphActions::FindPCGSettingsClass(Candidate.NodeTypeName);
+          if (!SettingsClass) { continue; }
+
+          // 临时创建数据层节点
+          UPCGSettings *TmpSettings = nullptr;
+          UPCGNode *TmpPCGNode = PCGGraph->AddNodeOfType(SettingsClass, TmpSettings);
+          if (!TmpPCGNode) { continue; }
+
+          // 临时创建可视化层节点
+          FGraphNodeCreator<UPCGEditorGraphNode> Creator(*PCGEdGraph);
+          UPCGEditorGraphNode *TmpEdNode = Creator.CreateUserInvokedNode(false);
+          TmpEdNode->Construct(TmpPCGNode);
+          Creator.Finalize();
+
+          // 检查是否有任意 pin 能与目标 pin 连接
+          bool bCanConnect = false;
+          for (UEdGraphPin *CandPin : TmpEdNode->Pins) {
+            if (!CandPin || CandPin->Direction != CandidatePinDir) continue;
+            UEdGraphPin *OutPin = (Pin->Direction == EGPD_Output) ? Pin : CandPin;
+            UEdGraphPin *InPin  = (Pin->Direction == EGPD_Input)  ? Pin : CandPin;
+            FPinConnectionResponse Resp = Schema->CanCreateConnection(OutPin, InPin);
+            if (Resp.Response != CONNECT_RESPONSE_DISALLOW) {
+              bCanConnect = true;
+              break;
+            }
+          }
+
+          // 删除临时节点
+          PCGGraph->RemoveNode(TmpPCGNode);
+          PCGEdGraph->RemoveNode(TmpEdNode);
+
+          if (bCanConnect) {
+            Filtered.Add(Candidate);
+          }
+        }
+        Candidates = MoveTemp(Filtered);
       }
     }
 
