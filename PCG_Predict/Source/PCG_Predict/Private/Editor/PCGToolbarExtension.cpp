@@ -11,26 +11,14 @@
 
 #define LOCTEXT_NAMESPACE "PCGToolbarExtension"
 
-static TSharedPtr<FPCGEditorExtension> GEditorExtension;
-
-void FPCGToolbarExtension::Initialize() {
-  // 创建编辑器扩展实例
-  if (!GEditorExtension.IsValid()) {
-    GEditorExtension = MakeShareable(new FPCGEditorExtension());
-    GEditorExtension->Initialize();
-  }
-
-  // 注册工具栏扩展
+void FPCGToolbarExtension::Initialize(TSharedPtr<FPCGEditorExtension> InEditorExtension) {
+  EditorExtension = InEditorExtension;
   ExtendToolbar();
-
   UE_LOG(LogTemp, Log, TEXT("PCG Toolbar Extension Initialized"));
 }
 
 void FPCGToolbarExtension::Shutdown() {
-  if (GEditorExtension.IsValid()) {
-    GEditorExtension->Shutdown();
-    GEditorExtension.Reset();
-  }
+  EditorExtension.Reset();
 }
 
 void FPCGToolbarExtension::ExtendToolbar() {
@@ -103,8 +91,8 @@ void FPCGToolbarExtension::OnTogglePredictionClicked() {
 }
 
 void FPCGToolbarExtension::OnIntentButtonClicked() {
-  if (GEditorExtension.IsValid()) {
-    GEditorExtension->ShowIntentInput();
+  if (EditorExtension.IsValid()) {
+    EditorExtension->ShowIntentInput();
   }
 }
 
