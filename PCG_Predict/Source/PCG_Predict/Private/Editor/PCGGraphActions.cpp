@@ -114,9 +114,6 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
   NewEdGraphNode->NodePosY = SpawnLocation.Y;
   NodeCreator.Finalize();
 
-  // 确保节点的 Pins 已经创建
-  NewEdGraphNode->AllocateDefaultPins();
-
   // 6. 同步位置到数据层
   NewPCGNode->PositionX = SpawnLocation.X;
   NewPCGNode->PositionY = SpawnLocation.Y;
