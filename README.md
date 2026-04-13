@@ -188,6 +188,7 @@ PCG_Predict/
 │       │   │   ├── PCGGraphActions.h           # 节点创建/连接
 │       │   │   ├── PCGGraphFactory.h           # Graph 工厂
 │       │   │   ├── PCGToolbarExtension.h       # 工具栏扩展
+│       │   │   ├── PCGEditorCommands.h         # 命令设置
 │       │   │   └── PCGEditorExtension.h        # 编辑器扩展
 │       │   ├── UI/
 │       │   │   ├── SPCGPredictionPopup.h       # 预测弹窗

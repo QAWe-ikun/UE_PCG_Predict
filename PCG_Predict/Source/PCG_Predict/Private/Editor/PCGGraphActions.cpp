@@ -320,15 +320,6 @@ UClass *FPCGGraphActions::FindPCGSettingsClass(const FString &NodeTypeName) {
     UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions] Loaded %d valid node classes"), SettingsClassMap.Num());
   }
 
-  // 旧的硬编码映射作为后备（如果 JSON 加载失败）
-  if (SettingsClassMap.Num() == 0) {
-    UE_LOG(LogTemp, Warning, TEXT("[PCGGraphActions] JSON loading failed, using fallback mappings"));
-    SafeAddToMap(SettingsClassMap, TEXT("Difference"),
-        FindClass(TEXT("/Script/PCG.PCGDifferenceSettings")));
-    SafeAddToMap(SettingsClassMap, TEXT("Union"),
-        FindClass(TEXT("/Script/PCG.PCGUnionSettings")));
-  }
-
   UClass **FoundClass = SettingsClassMap.Find(NodeTypeName);
   if (FoundClass && *FoundClass) {
     return *FoundClass;
