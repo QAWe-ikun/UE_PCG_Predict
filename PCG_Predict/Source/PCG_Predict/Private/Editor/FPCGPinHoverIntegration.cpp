@@ -89,6 +89,16 @@ void FPCGPinHoverIntegration::DetectPinUnderCursor() {
     return;
   }
 
+  // 正在拖拽引线时不触发预测，避免干扰连线操作
+  if (FSlateApplication::Get().IsDragDropping()) {
+    HidePrediction();
+    ConsecutiveDetectionCount = 0;
+    LastDetectedWidgetType = TEXT("");
+    CurrentTargetPin = nullptr;
+    CurrentGraphPanel = nullptr;
+    return;
+  }
+
   // 获取鼠标位置
   FSlateApplication &Application = FSlateApplication::Get();
   FVector2D MousePos = Application.GetCursorPos();
