@@ -178,29 +178,40 @@ TArray<FPCGCandidate> FPCGFastPredictor::Query(
         return {};
     }
 
+    // 打印输入的节点 ID 序列
+    FString IdStr;
+    for (int32 Id : RecentNodeIds) IdStr += FString::FromInt(Id) + TEXT(",");
+    UE_LOG(LogTemp, Log, TEXT("[FastPredictor] Query ids=[%s] unigram=%d"), *IdStr, UnigramTable.Num());
+
     // 按优先级查找：trigram → bigram → unigram → starter
     const TMap<int32, float>* BestMatch = nullptr;
+    FString MatchLevel = TEXT("none");
 
     if (RecentNodeIds.Num() >= 3)
     {
         FString Key = MakeKey(RecentNodeIds, 3);
         BestMatch = TrigramTable.Find(Key);
+        if (BestMatch) MatchLevel = TEXT("trigram:") + Key;
     }
     if (!BestMatch && RecentNodeIds.Num() >= 2)
     {
         FString Key = MakeKey(RecentNodeIds, 2);
         BestMatch = BigramTable.Find(Key);
+        if (BestMatch) MatchLevel = TEXT("bigram:") + Key;
     }
     if (!BestMatch && RecentNodeIds.Num() >= 1)
     {
         FString Key = MakeKey(RecentNodeIds, 1);
         BestMatch = UnigramTable.Find(Key);
+        if (BestMatch) MatchLevel = TEXT("unigram:") + Key;
     }
     if (!BestMatch && StarterTable.Num() > 0)
     {
-        // starter 直接转换
+        UE_LOG(LogTemp, Log, TEXT("[FastPredictor] -> starter"));
         return MapToCandidates(StarterTable, TopK);
     }
+
+    UE_LOG(LogTemp, Log, TEXT("[FastPredictor] -> %s"), *MatchLevel);
 
     if (!BestMatch)
     {

@@ -8,9 +8,9 @@ bool FPCGOnnxRuntime::Initialize(const FString& ModelPath)
 
     if (!FPaths::FileExists(ModelPath))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[OnnxRuntime] Model not found: %s — running in mock mode"), *ModelPath);
-        bInitialized = true;
-        return true;
+        UE_LOG(LogTemp, Warning, TEXT("[OnnxRuntime] Model not found: %s"), *ModelPath);
+        bInitialized = false;
+        return false;
     }
 
     // TODO: 集成 ONNX Runtime 库后替换为真实初始化
@@ -28,15 +28,8 @@ TArray<float> FPCGOnnxRuntime::RunInference(const TArray<float>& Input)
 {
     if (!bInitialized) return {};
 
-    // TODO: 真实推理
-    // 当前返回 195 维模拟输出
-    TArray<float> Out;
-    Out.SetNum(195);
-    for (int32 i = 0; i < 195; ++i)
-    {
-        Out[i] = FMath::Max(0.0f, 1.0f - i * 0.005f);
-    }
-    return Out;
+    // TODO: 真实推理（ONNX Runtime 集成后实现）
+    return {};
 }
 
 TArray<float> FPCGOnnxRuntime::RunInferenceMulti(const TArray<FPCGTensorInput>& Inputs)
@@ -75,12 +68,5 @@ TArray<float> FPCGOnnxRuntime::RunInferenceMulti(const TArray<FPCGTensorInput>& 
     // int64 OutSize  = Outputs[0].GetTensorTypeAndShapeInfo().GetElementCount();
     // return TArray<float>(OutData, OutSize);
 
-    // 模拟：返回 195 维随机 logits
-    TArray<float> Out;
-    Out.SetNum(195);
-    for (int32 i = 0; i < 195; ++i)
-    {
-        Out[i] = FMath::FRandRange(0.0f, 1.0f);
-    }
-    return Out;
+    return {};
 }

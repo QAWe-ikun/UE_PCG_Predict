@@ -147,18 +147,15 @@ bool FPCGGraphActions::CreateNodeAndConnect(TSharedPtr<SGraphPanel> GraphPanel,
 
     for (UEdGraphPin* Pin : NewEdGraphNode->Pins) {
       if (Pin && Pin->Direction == NewNodePinDirection) {
-        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   Pin[%d]: %s (Direction: %s, Type: %s)"),
+        UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   Pin[%d]: %s (Category: %s, SubCategory: %s)"),
                PinIndex, *Pin->GetName(),
-               Pin->Direction == EGPD_Input ? TEXT("Input") : TEXT("Output"),
-               *Pin->PinType.PinCategory.ToString());
+               *Pin->PinType.PinCategory.ToString(),
+               *Pin->PinType.PinSubCategory.ToString());
 
-        // 检查 Pin 类型是否兼容
         if (ArePinsCompatible(Pin, TargetPin)) {
           CompatiblePin = Pin;
-          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   -> Selected this pin (first compatible)"));
-          break; // 选择第一个兼容的pin
-        } else {
-          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   -> Not compatible with target pin"));
+          UE_LOG(LogTemp, Log, TEXT("[PCGGraphActions]   -> Selected"));
+          break;
         }
       }
       PinIndex++;
@@ -372,32 +369,29 @@ bool FPCGGraphActions::ArePinsCompatible(UEdGraphPin *PinA, UEdGraphPin *PinB) {
     return false;
   }
 
-  // PCG 特殊处理：主数据pin（名为"In"或"Out"）可以连接任何数据pin
-  FString PinAName = PinA->GetName();
-  FString PinBName = PinB->GetName();
+  const FName CategoryA = PinA->PinType.PinCategory;
+  const FName CategoryB = PinB->PinType.PinCategory;
 
-  bool bPinAIsMainData = (PinAName == TEXT("In") || PinAName == TEXT("Out"));
-  bool bPinBIsMainData = (PinBName == TEXT("In") || PinBName == TEXT("Out"));
-
-  // 如果任一pin是主数据pin，且另一个不是特殊pin（Overrides、Execution等），则兼容
-  if (bPinAIsMainData || bPinBIsMainData) {
-    // 排除特殊pin
-    bool bIsSpecialPin = PinAName.Contains(TEXT("Overrides")) ||
-                         PinAName.Contains(TEXT("Execution")) ||
-                         PinBName.Contains(TEXT("Overrides")) ||
-                         PinBName.Contains(TEXT("Execution"));
-
-    if (!bIsSpecialPin) {
-      return true;
-    }
-  }
-
-  // 严格类型匹配
-  if (PinA->PinType != PinB->PinType) {
+  // Attribute Set pin（Overrides 等）不参与数据连接
+  static const FName AttrSet(TEXT("Attribute Set"));
+  if (CategoryA == AttrSet || CategoryB == AttrSet) {
     return false;
   }
 
-  return true;
+  // Category 相同直接兼容
+  if (CategoryA == CategoryB) {
+    return true;
+  }
+
+  // PCG "Any" 类型的 pin 在 UE 里 Category = None，可以连接任何数据 pin
+  static const FName NoneCategory(TEXT("None"));
+  static const FName ConcreteData(TEXT("Concrete Data"));
+  if ((CategoryA == NoneCategory && CategoryB == ConcreteData) ||
+      (CategoryA == ConcreteData && CategoryB == NoneCategory)) {
+    return true;
+  }
+
+  return false;
 }
 
 void FPCGGraphActions::CreatePinConnection(UEdGraphPin *OutputPin,
