@@ -181,6 +181,14 @@ void FPCGPredictorEngine::SetIntent(const FString& Text)
     UE_LOG(LogTemp, Log, TEXT("[PCGPredictor] Intent set: %s"), *Text);
 }
 
+void FPCGPredictorEngine::CancelPendingPrediction()
+{
+    if (DeepPredictor.IsValid() && DeepPredictor->IsValid())
+    {
+        DeepPredictor->CancelPending();
+    }
+}
+
 FString FPCGPredictorEngine::GetNodeName(int32 NodeTypeId) const
 {
     for (const FPCGNodeRegistryEntry& Entry : NodeRegistry)

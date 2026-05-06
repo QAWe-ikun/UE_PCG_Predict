@@ -65,17 +65,27 @@ uint64 FPCGDeepPredictor::SubmitRequest(
     const FPCGDeepPredictRequest& Request,
     FOnDeepPredictComplete OnComplete)
 {
-    uint64 Id = NextRequestId.IncrementExchange();
+    uint64 Id = Request.RequestId;
+    if (Id == 0) Id = 1;
+
     FPCGDeepPredictRequest ReqCopy = Request;
     ReqCopy.RequestId = Id;
 
     {
         FScopeLock Lock(&QueueMutex);
-        RequestQueue.Add({ReqCopy, OnComplete});
+        bCancelled = false;
+        PendingRequest = {ReqCopy, OnComplete};
     }
 
     if (WorkEvent) WorkEvent->Trigger();
     return Id;
+}
+
+void FPCGDeepPredictor::CancelPending()
+{
+    bCancelled = true;
+    FScopeLock Lock(&QueueMutex);
+    PendingRequest = {};
 }
 
 uint32 FPCGDeepPredictor::Run()
@@ -85,25 +95,28 @@ uint32 FPCGDeepPredictor::Run()
         // 等待新请求（最多 100ms 超时，避免永久阻塞）
         WorkEvent->Wait(100);
 
-        while (true)
+        TPair<FPCGDeepPredictRequest, FOnDeepPredictComplete> Item;
         {
-            TPair<FPCGDeepPredictRequest, FOnDeepPredictComplete> Item;
-            {
-                FScopeLock Lock(&QueueMutex);
-                if (RequestQueue.Num() == 0) break;
-                Item = RequestQueue[0];
-                RequestQueue.RemoveAt(0);
-            }
-
-            FPCGDeepPredictResult Result = RunSingleRequest(Item.Key);
-
-            // 回调到游戏线程
-            FOnDeepPredictComplete Callback = Item.Value;
-            AsyncTask(ENamedThreads::GameThread, [Result, Callback]()
-            {
-                Callback.ExecuteIfBound(Result);
-            });
+            FScopeLock Lock(&QueueMutex);
+            if (PendingRequest.Key.RequestId == 0) continue;
+            Item = PendingRequest;
+            PendingRequest = {};
         }
+
+        // 检查是否已被取消（取出前用户就切出了）
+        if (bCancelled.Exchange(false)) continue;
+
+        FPCGDeepPredictResult Result = RunSingleRequest(Item.Key);
+
+        // 推理完成后再次检查（推理过程中用户切出了）
+        if (bCancelled.Load()) continue;
+
+        // 回调到游戏线程
+        FOnDeepPredictComplete Callback = Item.Value;
+        AsyncTask(ENamedThreads::GameThread, [Result, Callback]()
+        {
+            Callback.ExecuteIfBound(Result);
+        });
     }
     return 0;
 }

@@ -561,6 +561,9 @@ void FPCGPinHoverIntegration::ShowPrediction(const FString &PinName,
 }
 
 void FPCGPinHoverIntegration::HidePrediction() {
+  if (PredictorEngine.IsValid()) {
+    PredictorEngine->CancelPendingPrediction();
+  }
   if (PredictionPopupWindow.IsValid()) {
     FSlateApplication::Get().DestroyWindowImmediately(
         PredictionPopupWindow.ToSharedRef());

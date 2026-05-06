@@ -69,6 +69,9 @@ public:
         const FPCGDeepPredictRequest& Request,
         FOnDeepPredictComplete OnComplete);
 
+    /** 取消当前待处理的推理请求 */
+    void CancelPending();
+
     // FRunnable interface
     virtual bool Init() override { return true; }
     virtual uint32 Run() override;
@@ -82,11 +85,10 @@ private:
     FRunnableThread* WorkerThread = nullptr;
     FEvent* WorkEvent = nullptr;
 
-    // 请求队列（线程安全）
+    // 单请求（线程安全）
     FCriticalSection QueueMutex;
-    TArray<TPair<FPCGDeepPredictRequest, FOnDeepPredictComplete>> RequestQueue;
-
-    TAtomic<uint64> NextRequestId{1};
+    TPair<FPCGDeepPredictRequest, FOnDeepPredictComplete> PendingRequest;
+    TAtomic<bool> bCancelled{false};
 
     static constexpr int32 MAX_NODES    = 7;
     static constexpr int32 HISTORY_LEN  = 5;

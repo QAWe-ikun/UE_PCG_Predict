@@ -45,6 +45,9 @@ public:
 
     void SetIntent(const FString& Text);
 
+    /** 取消当前待处理的 Deep 推理请求 */
+    void CancelPendingPrediction();
+
     /**
      * 设置 Deep 推理完成回调（在游戏线程调用）。
      * 参数：合并后的最终候选列表。
